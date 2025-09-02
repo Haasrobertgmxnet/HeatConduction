@@ -1,6 +1,6 @@
-# 2D Heat Equation Solver
+# Small 2D Heat Equation Study
 
-## Language / Sprache / Idioma:
+##  Sprache / Idioma / Language:
 [🇩🇪 Deutsch](#deutsch) | [🇪🇸 Español](#español) | [🇬🇧 English](#english)
 
 ---
