@@ -1,376 +1,337 @@
-#!/usr/bin/env python3
-"""heat_rnn.py
-
-Kleines, lauffaehiges Beispiel (PyTorch) fuer ein RNN-basiertes Modell, das die
-zeitabhaengige 2D-Waermeleitung vorhersagt.
-
-Enthalten:
-- Datengenerator (explizites Finite-Difference-Schema) fuer Trainingsdaten
-- Encoder (CNN) -> LSTM -> Decoder (Deconv) Architektur
-- optionale Physik-Regularisierung (PDE-Residual) als Loss-Term
-- Trainingsloop, Loss-Speicherung, Beispielvorhersagen als PNG
-
-Aufruf:
-    python heat_rnn.py --epochs 6 --device cpu
-
-Hinweis: fuer ernsthafte Experimente anpassen (Gittergroesse, Epochen, Batchsize).
-"""
-
-import argparse
-import os
-import math
-import numpy as np
+﻿import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import matplotlib.pyplot as plt
 
+# -------------------------
+# Grid parameters
+# -------------------------
+nx, ny = 30, 30
+lx, ly = 1.0, 1.0
+dx, dy = lx/nx, ly/ny
 
-# -------------------- Hilfsfunktionen / Datengenerator --------------------
+# -------------------------
+# Physical parameters
+# -------------------------
+alpha = 0.001
+dt = 0.0005
+nt = 200
 
-def laplacian_np(u, dx, dy):
-    """Numerische Laplace-Operator (NumPy) fuer den Datengenerator.
-    Randbedingungen: einfache Neumann-Approximation (Spiegeln).
-    u: (H,W)
-    """
-    H, W = u.shape
-    lap = np.zeros_like(u)
-    lap[1:-1,1:-1] = (
-        (u[2:,1:-1] - 2*u[1:-1,1:-1] + u[0:-2,1:-1]) / dx**2
-        + (u[1:-1,2:] - 2*u[1:-1,1:-1] + u[1:-1,0:-2]) / dy**2
-    )
-    # Kanten (einfaches Spiegeln)
-    lap[0,1:-1] = (
-        (u[1,1:-1] - 2*u[0,1:-1] + u[1,1:-1]) / dx**2
-        + (u[0,2:] - 2*u[0,1:-1] + u[0,0:-2]) / dy**2
-    )
-    lap[-1,1:-1] = (
-        (u[-2,1:-1] - 2*u[-1,1:-1] + u[-2,1:-1]) / dx**2
-        + (u[-1,2:] - 2*u[-1,1:-1] + u[-1,0:-2]) / dy**2
-    )
-    lap[1:-1,0] = (
-        (u[2:,0] - 2*u[1:-1,0] + u[0:-2,0]) / dx**2
-        + (u[1:-1,1] - 2*u[1:-1,0] + u[1:-1,1]) / dy**2
-    )
-    lap[1:-1,-1] = (
-        (u[2:,-1] - 2*u[1:-1,-1] + u[0:-2,-1]) / dx**2
-        + (u[1:-1,-2] - 2*u[1:-1,-1] + u[1:-1,-2]) / dy**2
-    )
-    lap[0,0] = lap[0,1]
-    lap[0,-1] = lap[0,-2]
-    lap[-1,0] = lap[-2,0]
-    lap[-1,-1] = lap[-2,-1]
-    return lap
+# -------------------------
+# Initial condition
+# -------------------------
+center_value = 50.0
+u0 = np.zeros((nx, ny))
+u0[nx//2, ny//2] = center_value
 
+# replace point initial by gaussian hotspot
+sigma = 0.15  # breitengrad; anpassen
+x = np.linspace(0, lx, nx)
+y = np.linspace(0, ly, ny)
+Xg, Yg = np.meshgrid(x, y, indexing='ij')
+xc, yc = lx/2, ly/2
+u0 = np.exp(-((Xg-xc)**2 + (Yg-yc)**2) / (2*sigma**2))
+u0 = u0 / u0.max() * center_value
 
-def step_explicit(u, alpha, dx, dy, dt):
-    return u + dt * alpha * laplacian_np(u, dx, dy)
+# -------------------------
+# Boundary condition (Robin)
+# -------------------------
+a, b, c = 0.0, 1.0, 0.0
 
+# -------------------------
+# Device
+# -------------------------
+device = 'cpu'
+if torch.cuda.is_available():
+    print("CUDA is available")
+    device = 'cuda'
+else:
+    print("CUDA is NOT available. Using CPU")
 
-def random_initial_field(H, W, n_gaussians=2):
-    x = np.linspace(0,1,H)
-    y = np.linspace(0,1,W)
-    X, Y = np.meshgrid(x, y, indexing='ij')
-    field = np.zeros((H, W))
-    for _ in range(n_gaussians):
-        cx = np.random.rand()
-        cy = np.random.rand()
-        amp = 0.5 + np.random.rand() * 0.5
-        sigma = 0.04 + 0.12 * np.random.rand()
-        field += amp * np.exp(-((X-cx)**2 + (Y-cy)**2) / (2*sigma*sigma))
-    return np.clip(field, 0.0, None)
+# -------------------------
+# RNN Model
+# -------------------------
 
-
-# -------------------- PyTorch Dataset ------------------------------------
-
-class HeatSeqDataset(Dataset):
-    def __init__(self, sequences, K=3):
-        # sequences: numpy array (N, T, H, W)
-        self.seq = torch.tensor(sequences, dtype=torch.float32)
-        self.K = K
-
-    def __len__(self):
-        return self.seq.shape[0] * (self.seq.shape[1] - 1)
-
-    def __getitem__(self, idx):
-        seq_idx = idx // (self.seq.shape[1] - 1)
-        t_idx = idx % (self.seq.shape[1] - 1)
-        K = self.K
-        start = max(0, t_idx - (K-1) + 1)
-        window = self.seq[seq_idx, start:t_idx+1]
-        if window.shape[0] < K:
-            pad = window[0:1].repeat(K - window.shape[0], 1, 1)
-            window = torch.cat([pad, window], dim=0)
-        # shapes -> window: (K,H,W); target: (H,W)
-        return window.unsqueeze(1), self.seq[seq_idx, t_idx+1].unsqueeze(0)
-
-
-# -------------------- Modell (Encoder -> LSTM -> Decoder) ----------------
-
-class Encoder(nn.Module):
-    def __init__(self, latent_dim, H=24, W=24):
+class ConvLSTMCell(nn.Module):
+    def __init__(self, input_dim, hidden_dim, kernel_size=3, padding=1):
         super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(1, 12, 3, stride=2, padding=1), nn.ReLU(),
-            nn.Conv2d(12, 24, 3, stride=2, padding=1), nn.ReLU(),
-            nn.Conv2d(24, 48, 3, stride=2, padding=1), nn.ReLU(),
-        )
-        conv_out_size = 48 * (H // 8) * (W // 8)
-        self.fc = nn.Linear(conv_out_size, latent_dim)
-    
-    def forward(self, x):
-        print("Encoder input shape:", x.shape)  # DEBUG
-        # sicherstellen, dass Shape (B,1,H,W) ist
-        if x.dim() == 3:
-            x = x.unsqueeze(1)
-        z = self.conv(x)
-        z = z.view(z.shape[0], -1)
-        return self.fc(z)
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.kernel_size = kernel_size
+        self.padding = padding
+
+        self.conv = nn.Conv2d(in_channels=input_dim + hidden_dim,
+                              out_channels=4 * hidden_dim,
+                              kernel_size=kernel_size,
+                              padding=padding)
+
+    def forward(self, x, h_prev, c_prev):
+        # x: (B, C, H, W)
+        combined = torch.cat([x, h_prev], dim=1)  # (B, C_in + C_h, H, W)
+        conv_output = self.conv(combined)
+        cc_i, cc_f, cc_o, cc_g = torch.split(conv_output, self.hidden_dim, dim=1)
+
+        i = torch.sigmoid(cc_i)
+        f = torch.sigmoid(cc_f)
+        o = torch.sigmoid(cc_o)
+        g = torch.tanh(cc_g)
+
+        c = f * c_prev + i * g
+        h = o * torch.tanh(c)
+        return h, c
+
+    def init_hidden(self, batch_size, spatial_size, device):
+        height, width = spatial_size
+        h = torch.zeros(batch_size, self.hidden_dim, height, width, device=device)
+        c = torch.zeros(batch_size, self.hidden_dim, height, width, device=device)
+        return h, c
 
 
-class Decoder(nn.Module):
-    def __init__(self, latent_dim, H=24, W=24):
-        super().__init__()
-        self.H = H
-        self.W = W
-        self.fc = nn.Linear(latent_dim, 48 * (H // 8) * (W // 8))
-        self.deconv = nn.Sequential(
-            nn.ConvTranspose2d(48, 24, 4, stride=2, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(24, 12, 4, stride=2, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(12, 1, 4, stride=2, padding=1),
-        )
-
-    def forward(self, z):
-        x = self.fc(z)
-        x = x.view(x.shape[0], 48, self.H // 8, self.W // 8)
-        return self.deconv(x)
-
-
+# -------------------------
+# RNN Model
+# -------------------------
 class HeatRNN(nn.Module):
-    def __init__(self, latent_dim=64, H=24, W=24, K=3):
+    def __init__(self, nx, ny, hidden_size=64):
         super().__init__()
-        self.K = K
-        self.encoder = Encoder(latent_dim, H=H, W=W)
-        self.rnn = nn.LSTM(latent_dim, latent_dim, batch_first=True)
-        self.decoder = Decoder(latent_dim, H=H, W=W)
+        self.nx = nx
+        self.ny = ny
+        self.hidden_size = hidden_size
+        self.rnn = nn.RNN(input_size=nx*ny, hidden_size=hidden_size, batch_first=True)
+        self.fc = nn.Linear(hidden_size, nx*ny)
+        
+    def forward(self, u_seq):
+        # u_seq: (batch, time, nx, ny)
+        batch, time, nx, ny = u_seq.shape
+        u_flat = u_seq.view(batch, time, nx*ny)  # flatten 2D to 1D
+        out, _ = self.rnn(u_flat)
+        out = self.fc(out)
+        out = out.view(batch, time, nx, ny)      # reshape back to 2D
+        return out
 
-    def forward(self, window):
-        # window: (B, K, 1, H, W)
-        B, K, C, Hs, Ws = window.shape
-        encs = []
-        for k in range(K):
-            xk = window[:, k, :, :, :]   # (B,1,H,W)
-            encs.append(self.encoder(xk))
+# -------------------------
+# Boundary condition
+# -------------------------
+def apply_bc(u, a, b, c, dx, dy):
+    u_new = u.clone()
+    u_new[:,:,:,0] = (c*dx + b*u[:,:,:,1]) / (a*dx + b)
+    u_new[:,:,:, -1] = (c*dx + b*u[:,:,:,-2]) / (a*dx + b)
+    u_new[:,:,0,:] = (c*dy + b*u[:,:,1,:]) / (a*dy + b)
+    u_new[:,:, -1,:] = (c*dy + b*u[:,:,-2,:]) / (a*dy + b)
+    return u_new
 
-        encs = torch.stack(encs, dim=1)  # (B,K,latent)
-        out_seq, _ = self.rnn(encs)
-        last = out_seq[:, -1]
-        pred = self.decoder(last)
-        return pred
+# -------------------------
+# Generate FD reference sequence
+# -------------------------
+def generate_sequence(u0, nt, alpha, dt, dx, dy, a, b, c):
+    u_seq = []
+    u = torch.tensor(u0, dtype=torch.float32, device=device).unsqueeze(0).unsqueeze(0)
+    for t in range(nt):
+        u_new = u.clone()
+        u_new[:,:,1:-1,1:-1] = u[:,:,1:-1,1:-1] + alpha*dt*(
+            (u[:,:,2:,1:-1]-2*u[:,:,1:-1,1:-1]+u[:,:,:-2,1:-1])/dx**2 +
+            (u[:,:,1:-1,2:]-2*u[:,:,1:-1,1:-1]+u[:,:,1:-1,:-2])/dy**2
+        )
+        u_new = apply_bc(u_new, a, b, c, dx, dy)
+        u_seq.append(u_new)
+        u = u_new
+    u_seq = torch.cat(u_seq, dim=1)  # shape (1, nt, nx, ny)
+    return u_seq
 
+# -------------------------
+# Physics Loss using autograd
+# -------------------------
+def physics_loss(u, alpha, dt, dx, dy):
+    u = u.clone().detach().requires_grad_(True)
+    batch, nt, nx, ny = u.shape
+    # Time derivative
+    u_t = (u[:,1:,:,:] - u[:,:-1,:,:]) / dt
 
-# -------------------- Torch-Laplacian fuer Physik-Loss ---------------------
+    # Spatial derivatives via finite differences (still differentiable)
+    u_xx = (u[:,:,2:,1:-1] - 2*u[:,:,1:-1,1:-1] + u[:,:,:-2,1:-1]) / dx**2
+    u_yy = (u[:,:,1:-1,2:] - 2*u[:,:,1:-1,1:-1] + u[:,:,1:-1,:-2]) / dy**2
 
-def torch_laplacian(u, dx, dy):
-    # u: (B,1,H,W)
-    lap = torch.zeros_like(u)
-    lap[:,:,1:-1,1:-1] = (
-        (u[:,:,2:,1:-1] - 2*u[:,:,1:-1,1:-1] + u[:,:,0:-2,1:-1]) / dx**2 +
-        (u[:,:,1:-1,2:] - 2*u[:,:,1:-1,1:-1] + u[:,:,1:-1,0:-2]) / dy**2
-    )
-    lap[:,:,0,1:-1] = (
-        (u[:,:,1,1:-1] - 2*u[:,:,0,1:-1] + u[:,:,1,1:-1]) / dx**2 +
-        (u[:,:,0,2:] - 2*u[:,:,0,1:-1] + u[:,:,0,0:-2]) / dy**2
-    )
-    lap[:,:,-1,1:-1] = (
-        (u[:,:,-2,1:-1] - 2*u[:,:,-1,1:-1] + u[:,:,-2,1:-1]) / dx**2 +
-        (u[:,:, -1,2:] - 2*u[:,:, -1,1:-1] + u[:,:, -1,0:-2]) / dy**2
-    )
-    lap[:,:,1:-1,0] = (
-        (u[:,:,2:,0] - 2*u[:,:,1:-1,0] + u[:,:,0:-2,0]) / dx**2 +
-        (u[:,:,1:-1,1] - 2*u[:,:,1:-1,0] + u[:,:,1:-1,1]) / dy**2
-    )
-    lap[:,:,1:-1,-1] = (
-        (u[:,:,2:,-1] - 2*u[:,:,1:-1,-1] + u[:,:,0:-2,-1]) / dx**2 +
-        (u[:,:,1:-1,-2] - 2*u[:,:,1:-1,-1] + u[:,:,1:-1,-2]) / dy**2
-    )
-    lap[:,:,0,0] = lap[:,:,0,1]
-    lap[:,:,0,-1] = lap[:,:,0,-2]
-    lap[:,:,-1,0] = lap[:,:,-2,0]
-    lap[:,:,-1,-1] = lap[:,:,-2,-1]
-    return lap
+    u_xx_yy = u_xx[:, :-1, :, :] + u_yy[:, :-1, :, :]
+    u_t_interior = u_t[:, :, 1:-1, 1:-1]
 
+    loss = ((u_t_interior - alpha*u_xx_yy)**2).mean()
+    return loss
 
-# -------------------- Training & Evaluation --------------------------------
+# -------------------------
+# Boundary Loss
+# -------------------------
+def boundary_loss(u, a, b, c, dx, dy):
+    du_left = (u[:,:,:,1] - u[:,:,:,0]) / dx
+    du_right = (u[:,:,:,-1] - u[:,:,:,-2]) / dx
+    du_bottom = (u[:,:,1,:] - u[:,:,0,:]) / dy
+    du_top = (u[:,:,-1,:] - u[:,:,-2,:]) / dy
+    loss = ((a*u[:,:,:,0] + b*du_left - c)**2).mean()
+    loss += ((a*u[:,:,:,-1] + b*du_right - c)**2).mean()
+    loss += ((a*u[:,:,0,:] + b*du_bottom - c)**2).mean()
+    loss += ((a*u[:,:,-1,:] + b*du_top - c)**2).mean()
+    return loss
 
-def train_and_eval(args):
-    # Settings
-    device = torch.device(args.device)
-    alpha = args.alpha
-    H = args.H; W = args.W
-    dx = 1.0 / (H - 1); dy = 1.0 / (W - 1)
-    dt = args.dt if args.dt is not None else 0.25 * min(dx*dx, dy*dy) / alpha
+def energy_loss_(u):
+    """
+    u: (batch, time, nx, ny)
+    Berechnet den Energie-/Massenverlust
+    """
+    # Gesamtenergie pro Zeitschritt:
+    total_energy = u.sum(dim=(2,3))   # shape (batch, time)
+    # Erste Zeitschrittenergie als Referenz:
+    ref_energy = total_energy[:,0:1]  # shape (batch,1)
+    # Differenz zu Referenz (Broadcasting):
+    diff = total_energy - ref_energy
+    loss = (diff**2).mean()
+    return loss
 
-    # Generate data
-    print('Generating data...')
-    all_sequences = []
-    for s in range(args.n_sequences):
-        u0 = random_initial_field(H, W, n_gaussians=args.n_gaussians)
-        seq = [u0]
-        u = u0.copy()
-        for n in range(1, args.sequence_length):
-            u = step_explicit(u, alpha, dx, dy, dt)
-            seq.append(u.copy())
-        all_sequences.append(np.stack(seq, axis=0))
-    all_sequences = np.stack(all_sequences, axis=0)
-    all_sequences = all_sequences / all_sequences.max()
+def energy_loss(u):
+    """
+    Energy difference between consecutive timesteps
+    """
+    # (batch,time,nx,ny)
+    total_energy = u.sum(dim=(2,3))  # (batch,time)
+    diff = total_energy[:,1:] - total_energy[:,:-1]
+    return (diff**2).mean()
 
-    n_train = int(args.train_split * all_sequences.shape[0])
-    train_data = all_sequences[:n_train]
-    val_data   = all_sequences[n_train:]
+def greet():
+    import os
+    print("=" * 60)
+    print(f"Starting script: {os.path.basename(__file__)}")
+    print("=" * 60)
 
-    train_loader = DataLoader(HeatSeqDataset(train_data, K=args.K), batch_size=args.batch_size, shuffle=True)
-    val_loader   = DataLoader(HeatSeqDataset(val_data, K=args.K), batch_size=args.batch_size, shuffle=False)
+greet()
 
-    # Model
-    model = HeatRNN(latent_dim=args.latent_dim, H=H, W=W, K=args.K).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    mse = nn.MSELoss()
+# -------------------------
+# Training
+# -------------------------
+u_seq = generate_sequence(u0, nt, alpha, dt, dx, dy, a, b, c).to(device)
+model = HeatRNN(nx, ny).to(device)
+optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)  # L2 regularization
 
-    train_losses = []
-    val_losses = []
+loss_fn = nn.MSELoss()
+epochs = 200
+lambda_mse, lambda_phy, lambda_bc, lambda_energy = 1.0, 0.5, 0.5, 20.0
+for epoch in range(epochs):
+    optimizer.zero_grad()
+    output = model(u_seq[:,:-1,:,:])
+    
 
-    for epoch in range(1, args.epochs+1):
-        model.train()
-        t_loss = 0.0; t_count = 0
-        for window, target in train_loader:
-            window = window.to(device); target = target.to(device)
-            pred = model(window)
-            loss_data = mse(pred, target)
-            loss_phys = torch.tensor(0.0, device=device)
-            if args.phys_reg_lambda > 0.0:
-                last = window[:, -1]
-                ut_approx = (pred - last) / dt
-                lap = torch_laplacian(last, dx, dy)
-                residual = ut_approx - alpha * lap
-                loss_phys = mse(residual, torch.zeros_like(residual))
-            loss = loss_data + args.phys_reg_lambda * loss_phys
-            optimizer.zero_grad(); loss.backward(); optimizer.step()
-            t_loss += loss.item() * window.shape[0]; t_count += window.shape[0]
-        train_losses.append(t_loss / t_count)
+    mse_loss = loss_fn(output, u_seq[:,1:,:,:])
+    phy_loss = physics_loss(output, alpha, dt, dx, dy)
+    bc_loss = boundary_loss(output, a, b, c, dx, dy)
+    en_loss  = energy_loss(output)
+    loss = lambda_mse * mse_loss + lambda_phy * phy_loss + lambda_bc*bc_loss + lambda_energy*en_loss
 
-        # validation
-        model.eval()
-        v_loss = 0.0; v_count = 0
-        with torch.no_grad():
-            for window, target in val_loader:
-                window = window.to(device); target = target.to(device)
-                pred = model(window)
-                loss_data = mse(pred, target)
-                loss_phys = torch.tensor(0.0, device=device)
-                if args.phys_reg_lambda > 0.0:
-                    last = window[:, -1]
-                    ut_approx = (pred - last) / dt
-                    lap = torch_laplacian(last, dx, dy)
-                    residual = ut_approx - alpha * lap
-                    loss_phys = mse(residual, torch.zeros_like(residual))
-                loss = loss_data + args.phys_reg_lambda * loss_phys
-                v_loss += loss.item() * window.shape[0]; v_count += window.shape[0]
-        val_losses.append(v_loss / v_count)
+    loss.backward()
+    optimizer.step()
+    
+    if epoch % 20 == 0:
+        print("=" * 60)
+        print(f"Epoch {epoch}, Loss={loss.item():.6f}")
+        print(f"MSE Loss={mse_loss:.6f}")
+        print(f"Physics Loss={phy_loss:.6f}")
+        print(f"Boundary Loss={bc_loss:.6f}")
+        print(f"Energy Loss={en_loss:.6f}")
+# -------------------------
+# Prediction
+# -------------------------
+u_pred = [u_seq[:,0:1,:,:]]
+for t in range(nt-1):
+    input_seq = torch.cat(u_pred, dim=1)
+    out = model(input_seq[:,-1:,:,:])
+    out = apply_bc(out, a, b, c, dx, dy)
+    u_pred.append(out)
+u_pred = torch.cat(u_pred, dim=1)
+print("Prediction completed!")
 
-        print(f"Epoch {epoch}/{args.epochs} | train={train_losses[-1]:.4e} | val={val_losses[-1]:.4e}")
+# u_pred: (1, nt, nx, ny) → wir nehmen die erste Batch
+u_vis = u_pred[0].detach().cpu().numpy()  # shape: (nt, nx, ny)
 
-    # Save losses and model
-    out_dir = args.out_dir
-    os.makedirs(out_dir, exist_ok=True)
-    torch.save({'model_state_dict': model.state_dict(), 'args': vars(args)}, os.path.join(out_dir, 'heat_rnn.pth'))
-    np.save(os.path.join(out_dir, 'train_losses.npy'), np.array(train_losses))
-    np.save(os.path.join(out_dir, 'val_losses.npy'), np.array(val_losses))
+# -------------------------
+# Abfragepunkte fürs Visualisieren
+# -------------------------
+n_vis = 30  # Auflösung
+x_vis = torch.linspace(0, lx, n_vis)
+y_vis = torch.linspace(0, ly, n_vis)
+t_vis = torch.linspace(0, 1.0, 100)  # feiner zeitlicher Verlauf
 
-    # Plot loss
-    plt.figure()
-    plt.plot(train_losses, label='train')
-    plt.plot(val_losses, label='val')
-    plt.title('Losskurve')
-    plt.xlabel('Epoch'); plt.ylabel('Loss'); plt.legend()
-    plt.savefig(os.path.join(out_dir, 'loss_curve.png'))
-    plt.close()
+# -------------------------
+# Animation or slider
+# -------------------------
+import matplotlib.pyplot as plt
+# import matplotlib.animation as animation
+from matplotlib.widgets import Slider, Button
 
-    # Recursive rollout example: n steps
-    model.eval()
-    with torch.no_grad():
-        sample = torch.tensor(val_data[0:1], dtype=torch.float32).to(device)  # (1,T,H,W)
-        K = args.K
-        # korrektes Format: (B,K,1,H,W)
-        window_frames = sample[:, 0:K].unsqueeze(2)  # (1,K,1,H,W)
+results = u_vis
 
-        M = min(6, sample.shape[1] - K)
-        preds = []
+def anim_slide():
+    # Annahme: 'results' ist aus deinem Crank-Nicolson-Solver:
+    # results.shape = (nt+1, nx, ny)
+    nt = results.shape[0]
+    lx, ly = 1.0, 1.0
+    dt = 0.0005  # Zeitschritt (musst du ggf. anpassen)
 
-        for m in range(M):
-            pred = model(window_frames.to(device))        # (1,1,H,W)
-            preds.append(pred.cpu().numpy()[0, 0])       # nur (H,W)
+    # -------------------------------
+    # Figure und Achsen erzeugen
+    # -------------------------------
+    fig, ax = plt.subplots(figsize=(6,5))
+    plt.subplots_adjust(bottom=0.25)  # Platz für Slider und Button
 
-            # altes Fenster verschieben, neue Prediction anh�ngen
-            window_frames = torch.cat([window_frames[:, 1:], pred.unsqueeze(1)], dim=1)
+    cax = ax.imshow(results[0], origin='lower', extent=[0, lx, 0, ly],
+                    cmap='hot', vmin=results.min(), vmax=results.max())
+    fig.colorbar(cax, label="Temperature")
 
-        gt = sample[0, K:K+M].cpu().numpy()  # Ground truth (M, H, W)
+    ax.set_title("t = 0.0000")
 
+    # Slider-Achse
+    ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03])
+    slider = Slider(ax_slider, "Time", 0, nt-1, valinit=0, valstep=1)
 
-    # Save example images
-    # Save example images
-    for i in range(M):
-        fig, ax = plt.subplots(1, 3, figsize=(9, 3))
-        ax[0].imshow(preds[i], origin='lower')
-        ax[0].set_title('pred')
+    # Play/Stop-Button-Achse
+    ax_button = plt.axes([0.8, 0.02, 0.1, 0.04])
+    button = Button(ax_button, 'Play', color='lightgray', hovercolor='0.85')
 
-        ax[1].imshow(gt[i], origin='lower')  # jetzt gleiche Form (H,W)
-        ax[1].set_title('gt')
+    # -------------------------------
+    # Interaktive Logik
+    # -------------------------------
+    playing = False  # Zustand
 
-        ax[2].imshow(np.abs(preds[i] - gt[i]), origin='lower')
-        ax[2].set_title('abs error')
+    def update_slider(val):
+        """Update-Funktion fuer Slider"""
+        frame = int(slider.val)
+        cax.set_data(results[frame])
+        ax.set_title(f"t = {frame*dt:.4f}")
+        fig.canvas.draw_idle()
 
-        for a in ax:
-            a.axis('off')
-        plt.tight_layout()
-        plt.savefig(os.path.join(out_dir, f'example_step_{i+1}.png'))
-        plt.close()
+    slider.on_changed(update_slider)
 
-    print(f"Training abgeschlossen. Ergebnisse in: {out_dir}")
+    def play_animation(event):
+        """Play/Stop-Button gedrueckt"""
+        nonlocal playing
+        playing = not playing
+        if playing:
+            button.label.set_text('Stop')
+            fig.canvas.start_event_loop(0.001)  # kurz abwarten
+            run_animation()
+        else:
+            button.label.set_text('Play')
 
+    button.on_clicked(play_animation)
 
-# -------------------- CLI / main -----------------------------------------
+    def run_animation():
+        """Automatisch durchlaufen"""
+        nonlocal playing
+        # wichtig: playing überprüfen in jeder Iteration
+        for frame in range(int(slider.val)+1, nt):
+            if not playing:
+                break
+            slider.set_val(frame)   # das triggert update_slider automatisch
+            plt.pause(0.05)         # Geschwindigkeit anpassen
+        button.label.set_text('Play')
+        # Wenn am Ende angekommen:
+        # global playing
+        playing = False
 
-def parse_args():
-    p = argparse.ArgumentParser()
-    p.add_argument('--device', default='cpu')
-    p.add_argument('--H', type=int, default=24)
-    p.add_argument('--W', type=int, default=24)
-    p.add_argument('--alpha', type=float, default=0.1)
-    p.add_argument('--dt', type=float, default=None)
-    p.add_argument('--n_sequences', type=int, default=80)
-    p.add_argument('--sequence_length', type=int, default=8)
-    p.add_argument('--n_gaussians', type=int, default=2)
-    p.add_argument('--train_split', type=float, default=0.8)
-    p.add_argument('--K', type=int, default=3)
-    p.add_argument('--latent_dim', type=int, default=64)
-    p.add_argument('--batch_size', type=int, default=16)
-    p.add_argument('--epochs', type=int, default=6)
-    p.add_argument('--lr', type=float, default=1e-3)
-    p.add_argument('--phys_reg_lambda', type=float, default=1.0,
-                   help='Weight of physics residual in loss (0 to disable)')
-    p.add_argument('--out_dir', type=str, default='./heat_rnn_out')
-    p.add_argument('--seed', type=int, default=1)
-    return p.parse_args()
+    plt.show()
 
-
-def main():
-    args = parse_args()
-    np.random.seed(args.seed); torch.manual_seed(args.seed)
-    train_and_eval(args)
-
-
-if __name__ == '__main__':
-    main()
-
+anim_slide()
