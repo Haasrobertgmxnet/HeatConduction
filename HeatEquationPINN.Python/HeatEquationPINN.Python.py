@@ -1,40 +1,32 @@
-﻿import numpy as np
+﻿import time
+from token import STAR
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import time
 
 # -------------------------
-# Physical parameters
+# Parameter
 # -------------------------
-alpha = 0.01
+alpha = 1e-4 # 1.438e-7 # 0.001
 lx, ly = 1.0, 1.0
-nt = 50  # number of time steps for training points
+nt = 100
 nx, ny = 30, 30
-dt = 0.01
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# -------------------------
+# InputData (wie vorher, nur sicherstellen, dass Xyt float)
+# -------------------------
 class InputData:
     def __init__(self, lx, ly, lt, nx, ny, nt):
-        x = torch.linspace(0, lx, nx)
-        y = torch.linspace(0, ly, ny)
-        t = torch.linspace(0, lt, nt)
+        x = torch.linspace(0, lx, nx, dtype=torch.float32)
+        y = torch.linspace(0, ly, ny, dtype=torch.float32)
+        t = torch.linspace(0, lt, nt, dtype=torch.float32)
         self.X, self.Y, self.T = torch.meshgrid(x, y, t, indexing='ij')
-        self.Xyt = torch.stack([self.X.flatten(), self.Y.flatten(), self.T.flatten()], dim=1)
+        self.Xyt = torch.stack([self.X.flatten(), self.Y.flatten(), self.T.flatten()], dim=1).float()
+        self.Xyt.requires_grad_(True)
 
-    def get_data(self):
+    def get_xyt(self):
         return self.Xyt
-
-    def get_tuple(self, j):
-        return self.Xyt[j]
-
-    def get_capX(self):
-        return self.X
-
-    def get_capY(self):
-        return self.Y
-
-    def get_capT(self):
-        return self.T
 
     def get_x_ic(self):
         return self.X[:, :, 0]
@@ -45,44 +37,168 @@ class InputData:
     def get_t_ic(self):
         return self.T[:, :, 0]
 
-    def get_x(self):
-        return self.Xyt[:,0]
-
-    def get_y(self):
-        return self.Xyt[:,1]
-
-    def get_t(self):
-        return self.Xyt[:,2]
-
-    def print_x(self):
-        torch.set_printoptions(threshold=torch.inf)
-        print(f"x: {xyt.get_x()}")
-        torch.set_printoptions(profile="default")
-
-    def print_y(self):
-        torch.set_printoptions(threshold=torch.inf)
-        print(f"y: {xyt.get_y()}")
-        torch.set_printoptions(profile="default")
-
-    def print_t(self):
-        torch.set_printoptions(threshold=torch.inf)
-        print(f"t: {xyt.get_t()}")
-        torch.set_printoptions(profile="default")
+xyt = InputData(lx, ly, 1.0, nx, ny, nt)
+# gesamte Punktwolke (N,3)
+XYT_all = xyt.get_xyt().to(device)
 
 # -------------------------
-# PINN Model
+# Modell (wie vorher)
 # -------------------------
 class PINNHeat(nn.Module):
-    def __init__(self, hidden_size=50, n_hidden=5, activation= nn.Tanh()):
+    def __init__(self, hidden_size=50, n_hidden=5, activation=nn.Tanh()):
         super().__init__()
-        self.layers = [nn.Linear(3, hidden_size), activation]
+        layers = [nn.Linear(3, hidden_size), activation]
         for _ in range(n_hidden-1):
-            self.layers += [nn.Linear(hidden_size, hidden_size), activation]
-        self.layers += [nn.Linear(hidden_size, 1)]  # Output: u
-        self.model = nn.Sequential(*self.layers)
+            layers += [nn.Linear(hidden_size, hidden_size), activation]
+        layers += [nn.Linear(hidden_size, 1)]
+        self.model = nn.Sequential(*layers)
 
     def forward(self, xyt):
-        return self.model(xyt)
+        return 25.0 + self.model(xyt)
+
+model = PINNHeat(hidden_size=50, n_hidden=5).to(device)
+optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+
+# -------------------------
+# Hilfsfunktionen
+# -------------------------
+def gaussian2D(xyt, lx=1.0, ly=1.0, sigma=0.15):
+    # xyt: (N,3) oder (N,2) -> benutzt nur die ersten 2 Spalten
+    XY = xyt[:, :2]
+    cx, cy = lx/2.0, ly/2.0
+    r2 = (XY[:,0]-cx)**2 + (XY[:,1]-cy)**2
+    return torch.exp(-r2 / (2.0 * sigma**2)).unsqueeze(1)
+    # Normiere auf 1 (optional, aber konsistent)
+    g = g / (g.max().detach() + 1e-12)
+    return g
+
+def initial_func1(xyt, scal=1.0, lx=1.0, ly=1.0, sigma=0.15):
+    print(f"initial_func, sigma : {sigma:.6}")
+    return scal * gaussian2D(xyt, lx, ly, sigma)
+
+def initial_func2(xyt, const_val=25.0):
+    return torch.full_like(xyt[:,0], const_val)
+
+def initial_func(xyt):
+    return initial_func2(xyt)
+
+def heat_source(xyt):
+    return 5000.0*gaussian2D(xyt, 1.0, 1.0, 0.1)
+
+def sample_interior_points(xyt, n_samples=1024):
+    n_total = xyt.shape[0]
+    n = min(n_samples, n_total)
+    idx = torch.randperm(n_total)[:n]
+    return xyt[idx]
+
+# -------------------------
+# 2) Biased Sampler: mehr Punkte in kleinem Zeitfenster nahe t=0
+# -------------------------
+import numpy as np
+def sample_interior_points_biased(xyt_all, n_samples=1024, frac_near0=0.3, t_eps=0.02):
+    """
+    Wähle frac_near0-Anteil der Samples mit t <= t_eps (falls verfügbar),
+    den Rest zufällig aus der ganzen Domäne.
+    """
+    n_total = xyt_all.shape[0]
+    n_near = int(n_samples * frac_near0)
+    # Indices mit t <= t_eps
+    mask_near = (xyt_all[:,2] <= t_eps).cpu().numpy()
+    idx_near_all = np.where(mask_near)[0]
+    selected = []
+
+    if len(idx_near_all) > 0:
+        take = min(n_near, len(idx_near_all))
+        perm = np.random.permutation(len(idx_near_all))[:take]
+        selected.extend(idx_near_all[perm].tolist())
+
+    # rest zufällig
+    n_rest = n_samples - len(selected)
+    rem = np.random.permutation(n_total)[:n_rest].tolist()
+    selected.extend(rem)
+
+    selected = torch.tensor(selected, dtype=torch.long, device=xyt_all.device)
+    return xyt_all[selected]
+
+
+# physics loss: akzeptiert f=None oder f shape (N,1)
+def physics_loss(model, xyt, alpha, f=None):
+    xyt = xyt.clone().detach().requires_grad_(True)
+    u = model(xyt)                    # (N,1)
+    grads = torch.autograd.grad(outputs=u, inputs=xyt,
+                                grad_outputs=torch.ones_like(u),
+                                create_graph=True)[0]  # (N,3)
+    u_x = grads[:, 0:1]
+    u_y = grads[:, 1:2]
+    u_t = grads[:, 2:3]
+    u_xx = torch.autograd.grad(outputs=u_x, inputs=xyt,
+                               grad_outputs=torch.ones_like(u_x),
+                               create_graph=True)[0][:, 0:1]
+    u_yy = torch.autograd.grad(outputs=u_y, inputs=xyt,
+                               grad_outputs=torch.ones_like(u_y),
+                               create_graph=True)[0][:, 1:2]
+
+    if f is None:
+        f_tensor = torch.zeros_like(u)
+    else:
+        f_tensor = f.clone().detach()
+        if f_tensor.dim() == 1:
+            f_tensor = f_tensor.unsqueeze(1)
+        f_tensor = f_tensor.to(u.device)
+
+    residual = u_t - alpha * (u_xx + u_yy) - f_tensor
+    return torch.mean(residual ** 2), f_tensor
+
+def boundary_loss_dirichlet(model, xyt_boundary, u_boundary=None):
+    if u_boundary is None:
+        return torch.tensor(0.0, device=next(model.parameters()).device)
+    u_pred = model(xyt_boundary)
+    if u_boundary.dim() == 1:
+        u_boundary = u_boundary.unsqueeze(1)
+    return torch.mean((u_pred - u_boundary.to(u_pred.device))**2)
+
+def boundary_loss_robin(model, xyt_boundary, normal_vectors, a=None, b=None, c=None):
+    # Neumann-Rand-Loss
+    xyt_boundary = xyt_boundary.clone().detach().requires_grad_(True)
+    u_boundary = model(xyt_boundary)
+    grads_boundary = torch.autograd.grad(u_boundary, xyt_boundary,
+                                         torch.ones_like(u_boundary),
+                                         create_graph=True)[0]
+    # Skalarprodukt Gradient mit Normalenrichtung
+    du_dn = torch.sum(grads_boundary * normal_vectors, dim=1, keepdim=True)
+
+    if a is None:
+        return 0.0
+    if b is None:
+        return 0.0
+    if c is None:
+        return 0.0
+    return torch.mean((a*u_boundary + b*du_dn - c)**2)
+
+# einfache Randpunkt-Generierung (Dirichlet)
+def generate_boundary_points(x_min, x_max, y_min, y_max, t_min, t_max, n_per_side=50):
+    t_left = torch.rand(n_per_side,1)*(t_max-t_min)+t_min
+    y_left = torch.rand(n_per_side,1)*(y_max-y_min)+y_min
+    x_left = torch.full_like(y_left, x_min)
+    left = torch.cat([x_left, y_left, t_left], dim=1)
+
+    t_right = torch.rand(n_per_side,1)*(t_max-t_min)+t_min
+    y_right = torch.rand(n_per_side,1)*(y_max-y_min)+y_min
+    x_right = torch.full_like(y_right, x_max)
+    right = torch.cat([x_right, y_right, t_right], dim=1)
+
+    t_bottom = torch.rand(n_per_side,1)*(t_max-t_min)+t_min
+    x_bottom = torch.rand(n_per_side,1)*(x_max-x_min)+x_min
+    y_bottom = torch.full_like(x_bottom, y_min)
+    bottom = torch.cat([x_bottom, y_bottom, t_bottom], dim=1)
+
+    t_top = torch.rand(n_per_side,1)*(t_max-t_min)+t_min
+    x_top = torch.rand(n_per_side,1)*(x_max-x_min)+x_min
+    y_top = torch.full_like(x_top, y_max)
+    top = torch.cat([x_top, y_top, t_top], dim=1)
+
+    Xyt_b = torch.cat([left, right, bottom, top], dim=0)
+    return Xyt_b
 
 def generate_boundary_points_and_normals(x_min, x_max, y_min, y_max, t_min, t_max, n_per_side=50):
     # t als Zufallswerte für Randpunkte
@@ -119,186 +235,100 @@ def generate_boundary_points_and_normals(x_min, x_max, y_min, y_max, t_min, t_ma
 
     return xyt_boundary, normals_boundary
 
-# def initial_loss(model, x, y, t, alpha, f= 0):
 # -------------------------
-# Physics Loss using autograd
+# Initial condition (IC) vorbereiten
 # -------------------------
-def physics_loss(model, xyt, alpha, f=0.0):
-    # Eingabe differenzierbar machen
-    xyt = xyt.clone().detach().requires_grad_(True)
-
-    # Vorwärtsdurchlauf
-    u = model(xyt)  # shape [N,1] oder [N]
-
-    # Zeitableitung
-    grads = torch.autograd.grad(
-        outputs=u,
-        inputs=xyt,
-        grad_outputs=torch.ones_like(u),
-        create_graph=True,
-    )[0]  # shape [N,3]
-
-    u_x = grads[:, 0:1]
-    u_y = grads[:, 1:2]
-    u_t = grads[:, 2:3]
-
-    # Zweite Ableitungen (xx und yy)
-    u_xx = torch.autograd.grad(
-        outputs=u_x,
-        inputs=xyt,
-        grad_outputs=torch.ones_like(u_x),
-        create_graph=True,
-    )[0][:, 0:1]
-
-    u_yy = torch.autograd.grad(
-        outputs=u_y,
-        inputs=xyt,
-        grad_outputs=torch.ones_like(u_y),
-        create_graph=True,
-    )[0][:, 1:2]
-
-    # Residuum
-    residual = u_t - alpha * (u_xx + u_yy) - f
-
-    # Mittlerer quadratischer Fehler
-    return torch.mean(residual ** 2)
-
-def boundary_loss_robin(model, xyt_boundary, normal_vectors, a=None, b=None, c=None):
-    # Neumann-Rand-Loss
-    xyt_boundary = xyt_boundary.clone().detach().requires_grad_(True)
-    u_boundary = model(xyt_boundary)
-    grads_boundary = torch.autograd.grad(u_boundary, xyt_boundary,
-                                         torch.ones_like(u_boundary),
-                                         create_graph=True)[0]
-    # Skalarprodukt Gradient mit Normalenrichtung
-    du_dn = torch.sum(grads_boundary * normal_vectors, dim=1, keepdim=True)
-
-    if a is None:
-        return 0.0
-    if b is None:
-        return 0.0
-    if c is None:
-        return 0.0
-    return torch.mean((b*du_dn - c*u_boundary)**2)
-
-def boundary_loss_dirichlet(model, xyt_boundary, u_boundary=None):
-    # Dirichlet-Rand-Loss
-    if u_boundary is not None:
-        u_bc = model(xyt_boundary)
-        return torch.mean((u_bc - u_boundary)**2)
-    else:
-        return 0.0
-
-def boundary_loss_neumann(model, xyt_boundary, normal_vectors, du_dn_boundary=None):
-    # Neumann-Rand-Loss
-    xyt_boundary = xyt_boundary.clone().detach().requires_grad_(True)
-    u_boundary = model(xyt_boundary)
-    grads_boundary = torch.autograd.grad(u_boundary, xyt_boundary,
-                                         torch.ones_like(u_boundary),
-                                         create_graph=True)[0]
-    # Skalarprodukt Gradient mit Normalenrichtung
-    du_dn = torch.sum(grads_boundary * normal_vectors, dim=1, keepdim=True)
-
-    if du_dn_boundary is not None:
-        return torch.mean((du_dn - du_dn_boundary)**2)
-    else:
-        return 0.0
-
-def sample_interior_points(xyt, n_samples=1024):
-    idx = torch.randperm(xyt.shape[0])[:n_samples]
-    return xyt[idx]
-
-xyt = InputData(lx, ly, 1, nx, ny, nt)
-x = xyt.get_x()
-y = xyt.get_y()
-t = xyt.get_t()
-
-
-# Initial condition t=0
-x_ic = xyt.get_x_ic()
-y_ic = xyt.get_y_ic()
-t_ic = xyt.get_t_ic()
-
-Xyt_ic = torch.stack([x_ic.flatten(), y_ic.flatten(), t_ic.flatten()], dim=1)
-
-def gaussian2D(xyt, scal=1.0):
-    # Nur x und y Spalten nehmen (erste zwei)
-    XY = xyt[:, :2]  # Shape [N,2]
-
-    sigma = 1.0
-    # Gauss: exp(- (x² + y²) / sigma)
-    result = torch.exp(-((XY[:, 0])**2 + (XY[:, 1])**2) / sigma)
-
-    return scal * result
-
-u_ic = gaussian2D(Xyt_ic)
-
-xyt_boundary, normals = generate_boundary_points_and_normals(
-    x_min=0.0, x_max=lx, y_min=0.0, y_max=ly, t_min=0.0, t_max=1.0, n_per_side=50
-)
-
-def time_capsule(quiet, func, *args, **kwargs):
-    start = time.time()
-    result = func(*args, **kwargs)
-    time_diff = time.time() - start
-    if quiet:
-        return result
-    print(f"{func.__qualname__} executed in {time_diff:.6f} seconds")
-    return result
-
-def greet():
-    import os
-    print("=" * 60)
-    print(f"Starting script: {os.path.basename(__file__)}")
-    print("=" * 60)
-
-greet()
+x_ic = xyt.get_x_ic().flatten()
+y_ic = xyt.get_y_ic().flatten()
+t_ic = xyt.get_t_ic().flatten()
+Xyt_ic = torch.stack([x_ic, y_ic, t_ic], dim=1).float().to(device)  # (nx*ny, 3)
+u_ic = initial_func(Xyt_ic).to(device)  # (N,1)
 
 # -------------------------
-# Model, optimizer
+# 3) Trainingsparameter für Continuity-Loss
 # -------------------------
-model = PINNHeat(hidden_size=64, n_hidden=5)
-optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-4)
+eps_time = 1e-3   # kleines Zeit-Offset, prüfe auch größere Werte (1e-2)
+
+# Erzeuge Xyt_ic_eps einmal (t = eps_time)
+Xyt_ic_eps = Xyt_ic.clone().detach()
+Xyt_ic_eps[:,2] = eps_time
+Xyt_ic_eps = Xyt_ic_eps.to(device)
 
 # -------------------------
-# Training loop
+# Boundary points (Dirichlet = 0 example)
 # -------------------------
+# xyt_boundary = generate_boundary_points(0.0, lx, 0.0, ly, 0.0, 1.0, n_per_side=200).float().to(device)
+xyt_boundary, normals = generate_boundary_points_and_normals(0.0, lx, 0.0, ly, 0.0, 1.0, n_per_side=200)
+xyt_boundary = xyt_boundary.float().to(device)
+u_boundary_target = 0.1*torch.ones(xyt_boundary.shape[0], 1, device=device)  # Dirichlet u=0 on boundary
 
-epochs0 = 20
-epochs = 10*epochs0
+# -------------------------
+# Training
+# -------------------------
+epochs = 5000
 lambda_phy = 1.0
-lambda_ic = 100.0   # IC oft relativ stark gewichten
-lambda_bc = 100.0   # BC ebenfalls stark gewichten
+lambda_ic = 10.0
+lambda_bc = 1.0
+lambda_cont = 10.0
 
-a, b, c = 1.0, 0.0, 20.0
+import time
 
+start_time = time.time()
 for epoch in range(epochs):
-    # print("=" * 50)
-    # print(f"Epoch : {epoch}")
-    start = time.time()
-    time_capsule(True, optimizer.zero_grad)
-    xyt_batch = sample_interior_points(xyt.Xyt, 4096) # 16384
-    # loss_phy = time_capsule(True, physics_loss,model, xyt_batch, alpha, gaussian2D(xyt_batch))
-    # loss_bc = boundary_loss_robin(model, xyt_boundary, normals, 1.0, 0.0, c*torch.ones(xyt_boundary.shape[0],1))
-    loss_phy = time_capsule(True, physics_loss,model, xyt_batch, alpha)
-    loss_bc = boundary_loss_dirichlet(model, xyt_boundary, 0.0*c*torch.ones(xyt_boundary.shape[0],1))
-    # loss_phy = time_capsule(physics_loss,model, xyt.Xyt, alpha, gaussian2D(xyt.Xyt))
+    optimizer.zero_grad()
+    # sample interior points
+    # xyt_batch = sample_interior_points(XYT_all, n_samples=4096).to(device)
+    xyt_batch = sample_interior_points_biased(XYT_all, n_samples=4096).to(device)
+
+    # Spalte 2 (Index 2) ist t
+    mask = XYT_all[:, 2] == 0       # Bool-Maske für t==0
+    XYT_t0 = XYT_all[mask]          # Nur Zeilen mit t==0
+
+    # physics loss: f=None (homogene PDE). Wenn du eine Quelle willst, pass f=(N,1)
+    loss_phy, heat_s2 = physics_loss(model, xyt_batch, alpha, heat_source(xyt_batch))
+
+    # initial condition loss (enforce u(x,y,t=0)=gaussian)
     u_pred_ic = model(Xyt_ic)
     loss_ic = torch.mean((u_pred_ic - u_ic)**2)
-    # loss_bc = 0
-    loss = lambda_phy*loss_phy + lambda_ic*loss_ic + lambda_bc*loss_bc
+    u_pred_ic_eps = model(Xyt_ic_eps)
+    loss_cont = torch.mean((u_pred_ic_eps - u_ic)**2)
 
-    time_capsule(True, loss.backward)
-    time_capsule(True, optimizer.step)
-    time_diff = time.time() -start
+    # loss_bc = boundary_loss_dirichlet(model, xyt_boundary, 0*u_boundary_target)
+    loss_bc = boundary_loss_robin(model, xyt_boundary, normals, 0.0, 1.0, 0*u_boundary_target)
+
+    # loss = lambda_phy*loss_phy + lambda_ic*loss_ic + lambda_bc*loss_bc
+    loss = lambda_phy*loss_phy + lambda_ic*loss_ic + lambda_bc*loss_bc + lambda_cont*loss_cont
+    loss.backward()
+    optimizer.step()
     
-    if epoch % epochs0 == 0:
-        print(f"Epoch {epoch}, Total Loss={loss.item():.6f}, "
-              f"Physics Loss={loss_phy:.6f}, "
-              f"Initial Loss={loss_ic:.6f}, "
-              f"Boundary Loss={loss_bc:.6f}, "
-              f"Time={time_diff:.4f}, "
-              )
+    if epoch % 100 == 0 or epoch == epochs-1:
+        # Min/Max vom Modell auf Innenpunkten:
+        with torch.no_grad():
+            u_pred_batch = model(xyt_batch)
+            u_min = u_pred_batch.min().item()
+            u_max = u_pred_batch.max().item()
+
+            u_bc_pred = model(xyt_boundary)
+            u_bc_min = u_bc_pred.min().item()
+            u_bc_max = u_bc_pred.max().item()
+            u_bc_mean = u_bc_pred.mean().item()
+            # u_bc_rms = u_bc_pred.rms().item()
+
+        xyt_small = Xyt_ic.clone()
+        
+        xyt_small[:,2]=1e-3
+        xyt_small.requires_grad_(True)
+        u_t_pred = torch.autograd.grad(model(xyt_small), xyt_small,
+                                       grad_outputs=torch.ones_like(model(xyt_small)),
+                                       create_graph=True)[0][:,2]
+        print(f"Laufzeit: {time.time()-start_time:.4f} Sekunden")
+        print(f"u_t_pred[:10] : ")
+        print({u_t_pred[:10]})
+
+        print(f"Epoch {epoch:5d}: total={loss.item():.6e}, "
+              f"phy={loss_phy.item():.6e}, ic={loss_ic.item():.6e}, bc={loss_bc.item():.6e}, "
+              f"u_min={u_min:.4f}, u_max={u_max:.4f}, u_bc_min={u_bc_min:.4f}, u_bc_max={u_bc_max:.4f}, u_bc_mean={u_bc_mean:.4f}, u_t_pred[:10] : {u_t_pred[:10]}")
+        
 
 print("Training completed!")
 
@@ -306,42 +336,60 @@ print("Training completed!")
 # Prediction
 # -------------------------
 
-import numpy as np
+# import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 # -------------------------
 # Abfragepunkte fürs Visualisieren
 # -------------------------
-n_vis = 30  # Auflösung
+n_vis = 100  # Auflösung
 x_vis = torch.linspace(0, lx, n_vis)
 y_vis = torch.linspace(0, ly, n_vis)
-t_vis = torch.linspace(0, 1.0, 100)  # feiner zeitlicher Verlauf
+t_vis = torch.linspace(0, 1.0, 100)
 Xv, Yv = torch.meshgrid(x_vis, y_vis, indexing='ij')
 
-u_frames = []
+# shape für 2D-Darstellung
+nx_ic = xyt.get_x_ic().shape[0]
+ny_ic = xyt.get_y_ic().shape[1]
+
+# u_ic_frame1 = u_ic.detach().cpu().reshape(nx_ic, ny_ic).numpy()
+u_ic_frame = initial_func(torch.stack([Xv.flatten(), Yv.flatten()], dim=1).float()).detach().cpu().reshape(n_vis, n_vis).numpy()
+
+u_frames = [u_ic_frame,  ] 
+u_means = []
 with torch.no_grad():
     for tval in t_vis:
         Xyt_vis = torch.stack([
             Xv.flatten(),
             Yv.flatten(),
             torch.full_like(Xv.flatten(), tval)
-        ], dim=1)
+        ], dim=1).to(device)
         u_pred = model(Xyt_vis).reshape(n_vis, n_vis).cpu().numpy()
         u_frames.append(u_pred)
+        u_mean = u_pred.mean()
+        u_means.append(u_mean)
+        print(f"Frame {tval*100:.0f}: u mean={u_mean:.6f}, ")
+
+print(f"min of u mean={np.min(np.array(u_means))}")
+print(f"max of u mean={np.max(np.array(u_means))}")
+print(f"Standard dev of u mean={np.std(np.array(u_means))}")
 
 u_frames = np.array(u_frames)  # shape (nt, nx, ny)
 
-# -------------------------
-# Einzelbild (z.B. t = 0)
-# -------------------------
-plt.figure(figsize=(6,5))
-plt.imshow(u_ic.reshape(n_vis, n_vis).cpu().numpy(), origin='lower', extent=[0, lx, 0, ly], cmap='coolwarm')
-plt.colorbar(label="Temperature")
-plt.title("Temperature at start")
-plt.xlabel("x")
-plt.ylabel("y")
-plt.show()
+for idx in [0,1,-1]:
+    results = u_frames
+    nt_vis, nx, ny = results.shape
+    fig, ax = plt.subplots(figsize=(8,6))
+    plt.subplots_adjust(bottom=0.25)
+
+    vmin, vmax = results.min(), results.max()
+    cax = ax.imshow(results[idx], origin='lower', extent=[0, lx, 0, ly],
+                    cmap='coolwarm', vmin=vmin, vmax=vmax)
+    fig.colorbar(cax, label="Temperature")
+    ax.set_title(f"Frame: {idx}")
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
 
 # -------------------------
 # Einzelbild (z.B. erstes t)
@@ -349,7 +397,7 @@ plt.show()
 plt.figure(figsize=(6,5))
 plt.imshow(u_frames[0], origin='lower', extent=[0, lx, 0, ly], cmap='coolwarm')
 plt.colorbar(label="Temperature")
-plt.title("Temperature at first timestep")
+plt.title("Temperature at start")
 plt.xlabel("x")
 plt.ylabel("y")
 plt.show()
