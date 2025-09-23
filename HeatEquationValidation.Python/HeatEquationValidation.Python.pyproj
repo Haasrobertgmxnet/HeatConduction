@@ -2,15 +2,15 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>1acb79f9-725a-4abf-ae26-2d97f6cde87e</ProjectGuid>
+    <ProjectGuid>a6608bc0-36ef-4c39-b5ad-6229c6ec8bf3</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>HeatEquationPINN.Python.py</StartupFile>
+    <StartupFile>HeatEquationValidation.Python.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
-    <Name>HeatEquationPINN.Python</Name>
-    <RootNamespace>HeatEquationPINN.Python</RootNamespace>
+    <Name>HeatEquationValidation.Python</Name>
+    <RootNamespace>HeatEquationValidation.Python</RootNamespace>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -21,16 +21,7 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="comparison.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="HeatEquationPINN.Python.py" />
-    <Compile Include="pipeline_2d.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="pipeline_aryal.py">
-      <SubType>Code</SubType>
-    </Compile>
+    <Compile Include="HeatEquationValidation.Python.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

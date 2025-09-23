@@ -362,3 +362,10 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 /HeatEquationRNN.Python/heat_rnn_out
+/HeatEquationPINN.Python/heat_conduction_center_source_diffusion .gif
+/HeatEquationPINN.Python/best_model.pt
+/Documentation/Documentation.synctex.gz
+/Documentation/Documentation.log
+/Documentation/Documentation.pdf
+/HeatEquationPINN.Cpp/data
+/HeatEquationPINN.Cpp/build
