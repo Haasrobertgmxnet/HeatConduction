@@ -5,15 +5,13 @@ VisualStudioVersion = 17.14.36327.8
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "HeatEquation.Python", "HeatEquation.Python\HeatEquation.Python.pyproj", "{4DA035BF-2700-486C-9E45-202E0CC8984C}"
 EndProject
-Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "HeatEquationRNN.Python", "HeatEquationRNN.Python\HeatEquationRNN.Python.pyproj", "{7B06092F-57D5-4428-93BA-B416FC5B70C7}"
-EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "HeatEquationPINN.Python", "HeatEquationPINN.Python\HeatEquationPINN.Python.pyproj", "{1ACB79F9-725A-4ABF-AE26-2D97F6CDE87E}"
 EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "HeatEquationValidation.Python", "HeatEquationValidation.Python\HeatEquationValidation.Python.pyproj", "{A6608BC0-36EF-4C39-B5AD-6229C6EC8BF3}"
 EndProject
-Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "HeatEquationConvLSTM.Python", "HeatEquationConvLSTM.Python\HeatEquationConvLSTM.Python.pyproj", "{49EDDCF8-E28E-42A5-92CC-9E6A307A0E95}"
-EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HeatEquationPINN.Cpp", "HeatEquationPINN.Cpp\build\HeatEquationPINN.Cpp.vcxproj", "{0BBEC24C-6CF9-39A2-A7E4-24EDCFB8E65E}"
+EndProject
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Solver.Python", "Solver.Python\Solver.Python.pyproj", "{D53B4EA1-0128-4F42-A004-DB9966B95E83}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,10 +25,6 @@ Global
 		{4DA035BF-2700-486C-9E45-202E0CC8984C}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{4DA035BF-2700-486C-9E45-202E0CC8984C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4DA035BF-2700-486C-9E45-202E0CC8984C}.Release|x64.ActiveCfg = Release|Any CPU
-		{7B06092F-57D5-4428-93BA-B416FC5B70C7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{7B06092F-57D5-4428-93BA-B416FC5B70C7}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{7B06092F-57D5-4428-93BA-B416FC5B70C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{7B06092F-57D5-4428-93BA-B416FC5B70C7}.Release|x64.ActiveCfg = Release|Any CPU
 		{1ACB79F9-725A-4ABF-AE26-2D97F6CDE87E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{1ACB79F9-725A-4ABF-AE26-2D97F6CDE87E}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{1ACB79F9-725A-4ABF-AE26-2D97F6CDE87E}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -39,10 +33,6 @@ Global
 		{A6608BC0-36EF-4C39-B5AD-6229C6EC8BF3}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{A6608BC0-36EF-4C39-B5AD-6229C6EC8BF3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A6608BC0-36EF-4C39-B5AD-6229C6EC8BF3}.Release|x64.ActiveCfg = Release|Any CPU
-		{49EDDCF8-E28E-42A5-92CC-9E6A307A0E95}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{49EDDCF8-E28E-42A5-92CC-9E6A307A0E95}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{49EDDCF8-E28E-42A5-92CC-9E6A307A0E95}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{49EDDCF8-E28E-42A5-92CC-9E6A307A0E95}.Release|x64.ActiveCfg = Release|Any CPU
 		{0BBEC24C-6CF9-39A2-A7E4-24EDCFB8E65E}.Debug|Any CPU.ActiveCfg = Debug|x64
 		{0BBEC24C-6CF9-39A2-A7E4-24EDCFB8E65E}.Debug|Any CPU.Build.0 = Debug|x64
 		{0BBEC24C-6CF9-39A2-A7E4-24EDCFB8E65E}.Debug|x64.ActiveCfg = Debug|x64
@@ -51,6 +41,10 @@ Global
 		{0BBEC24C-6CF9-39A2-A7E4-24EDCFB8E65E}.Release|Any CPU.Build.0 = Release|x64
 		{0BBEC24C-6CF9-39A2-A7E4-24EDCFB8E65E}.Release|x64.ActiveCfg = Release|x64
 		{0BBEC24C-6CF9-39A2-A7E4-24EDCFB8E65E}.Release|x64.Build.0 = Release|x64
+		{D53B4EA1-0128-4F42-A004-DB9966B95E83}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D53B4EA1-0128-4F42-A004-DB9966B95E83}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D53B4EA1-0128-4F42-A004-DB9966B95E83}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D53B4EA1-0128-4F42-A004-DB9966B95E83}.Release|x64.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

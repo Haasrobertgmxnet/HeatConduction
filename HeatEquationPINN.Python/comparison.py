@@ -92,7 +92,7 @@ def pipeline1():
 
     ## Learning data
     leraning_rate = 1e-3
-    epochs = 3000
+    epochs = 8000
     
     ## NN Architecture
     hid_layers = 5
@@ -117,9 +117,20 @@ def pipeline1():
     model = PINN(hid_layers,nodes).to(device)
     model1a= copy.deepcopy(model)
     optimizer = torch.optim.Adam(model.parameters (), lr= leraning_rate)
+
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer,
+        step_size=3000,
+        gamma=0.5
+    )
         
     n_points= 1000
     total_time = 5.0
+
+    # pre config early stopping
+    best_loss = float('inf')     # bester bisheriger Verlust
+    patience = 500               # Anzahl Epochen ohne Verbesserung, bevor wir abbrechen
+    trigger_times = 0  
 
     start = time.time()
     for epoch in range(epochs):
@@ -135,10 +146,27 @@ def pipeline1():
         loss = weight_physics * loss_physics + weight_initial * loss_initial + weight_boundary * loss_boundary
         loss.backward ()
         optimizer.step()
+        scheduler.step()
+
+        current_loss = loss.item()
+
+        if current_loss < best_loss - 1e-20:  # 1e-6 = kleine Toleranz
+            best_loss = current_loss
+            trigger_times = 0
+            # Optional: bestes Modell speichern
+            torch.save(model.state_dict(), "best_model.pt")
+        else:
+            trigger_times += 1
+            if trigger_times >= patience:
+                print(f"Triggered early stopping after {epoch} epochs!")
+                # Lade bestes Modell zurück
+                model.load_state_dict(torch.load("best_model.pt"))
+                break
 
         if epoch % 100 == 0 or epoch == epochs-1:
+            current_lr = optimizer.param_groups[0]['lr']
             print(f"Epoch {epoch:5d}: total={loss.item():.6e}, "
-                  f"phy={loss_physics.item():.6e}, ic={loss_initial.item():.6e}, bc={loss_boundary.item():.6e}")
+                  f"phy={loss_physics.item():.6e}, ic={loss_initial.item():.6e}, bc={loss_boundary.item():.6e}, lr={current_lr:.6e}")
 
     print(f"Training finished and took {time.time()-start:.4} seconds.")
     model1 = copy.deepcopy(model)
@@ -241,10 +269,10 @@ def pipeline2():
         loss.backward()
         optimizer.step()
 
-        if epoch % 100 == 0:
+        if epoch % 100 == 0 or epoch == epochs-1:
+            current_lr = optimizer.param_groups[0]['lr']
             print(f"Epoch {epoch:5d}: total={loss.item():.6e}, "
-                      f"phy={loss_residual.item():.6e}, ic={loss_initial.item():.6e}, bc={loss_boundary.item():.6e}")
-            # print(f'Epoch {epoch}, Loss: {loss.item()}')
+                  f"phy={loss_residual.item():.6e}, ic={loss_initial.item():.6e}, bc={loss_boundary.item():.6e}, lr={current_lr:.6e}")
 
     print(f"Training finished and took {time.time()-start:.4} seconds.")
     model2 = copy.deepcopy(model)

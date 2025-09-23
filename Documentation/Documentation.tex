@@ -289,6 +289,7 @@ whereas for the Crank-Nicolson method
 \end{equation*}
 must be fulfilled for $L^\infty $-stability. For more information, see \cite[p 112]{Ernst2015}.
 \section{Physics Informed Neural Networks (PINN)}
+We strongly follow the approach of \cite{aryal2024a}. The source code used therein can be found in \cite{aryal2024b}.
 A PINN approximates the solution $u(x,y,t)$ by a neural network $\hat{u}(x,y,t)$, with the loss function penali
 \begin{enumerate}
 \item
@@ -319,8 +320,23 @@ K.-H. Hoffmann and G. Witterstein,
 \emph{Mathematische Modellierung: Grundprinzipien in Natur- und Ingenieurwissenschaften}, 
 Mathematik Kompakt, 1st ed. (corrected reprint), Birkhäuser, Basel, 2014.
 
+\bibitem{hoffmann2014modellierung}
+K.-H. Hoffmann and G. Witterstein, 
+\emph{Mathematische Modellierung: Grundprinzipien in Natur- und Ingenieurwissenschaften}, 
+Mathematik Kompakt, 1st ed. (corrected reprint), Birkhäuser, Basel, 2014.
+
+\bibitem{aryal2024a}
+S. Aryal, 
+\emph{Simulation of 2-dimensional heat conduction with physics-informed neural networks.}
+Bachelor thesis, University of Applied Sciences Ravensburg-Weingarten, 2024
+
+\bibitem{aryal2024b}
+S. Aryal, 
+\emph{Bachelor thesis: Pinns for 2d heat conduction.}
+Sourcecode of \cite{aryal2024a}, Link (checked at 2025-09-10): \url{https://github.com/Samman2571/Bachelor_thesis_PINNs_2D_Heat_Conduction}
+
 \bibitem{Ernst2015}
-O.Ernst,
+O. Ernst,
 \emph{Numerik partieller Differentialgleichungen, Part 2}, 
 Lecture notes, University of Technology Chemnitz, 2015.
 Link (checked at 2025-09-10): \url{https://www.tu-chemnitz.de/mathematik/numa/lehre/pde-2015/Folien/pdeTeil2.pdf}
@@ -360,7 +376,7 @@ S.~P. Timoshenko and J.~M. Gere,
 \end{comment}
 
 \bibitem{code}
-Code samples used in this work: \url{https://github.com/Haasrobertgmxnet/BeamEquation}
+Code samples used in this work: \url{https://github.com/Haasrobertgmxnet/HeatConduction}
 
 \end{thebibliography}
 
