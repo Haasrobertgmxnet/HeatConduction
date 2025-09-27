@@ -30,7 +30,29 @@
     <Compile Include="explicit_solver.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="frame_data.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="function_set.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="ibvp_data.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="pinn_solver.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="plot_tools.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="Solver.Python.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\HeatEquationPINN.Python\HeatEquationPINN.Python.pyproj">
+      <Name>HeatEquationPINN.Python</Name>
+      <Project>{1acb79f9-725a-4abf-ae26-2d97f6cde87e}</Project>
+      <Private>True</Private>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

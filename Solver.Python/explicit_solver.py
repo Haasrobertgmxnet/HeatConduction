@@ -1,5 +1,8 @@
 ﻿import numpy as np
 from numba import njit
+from boundary_conditions import HeatBoundaryCondition
+import torch
+import time
 
 @njit
 def step_numba(u, lamx, lamy, dt, f):
@@ -25,10 +28,11 @@ class HeatExplicitSolver():
         self.dy = dy
         self.apply_bc = bc
         self.use_numba = use_numba
+        print(f"alp: {alpha:.5}")
 
     def check_stability(self):
         stability_number = self.lamx + self.lamy
-        return stability_number <= 0.5, stability_number
+        return stability_number <= 0.5
 
     def step(self, u, f = None):
         if f is None:
@@ -38,16 +42,49 @@ class HeatExplicitSolver():
         u_new = u.copy()
         u_new[1:-1, 1:-1] = (u[1:-1, 1:-1]
         + self.lamx * (u[2:, 1:-1] - 2*u[1:-1, 1:-1] + u[:-2, 1:-1])
-        + self.lamy * (u[1:-1, 2:] - 2*u[1:-1, 1:-1] + u[1:-1, :-2]) - self.dt*f[1:-1, 1:-1])
+        + self.lamy * (u[1:-1, 2:] - 2*u[1:-1, 1:-1] + u[1:-1, :-2]) + self.dt*f[1:-1, 1:-1])
         return u_new
 
     # Explicit Euler scheme for nt steps
     def n_steps(self, u, f = None, nt= 1):
         for _ in range(nt):
             u = self.step(u,f)
-            self.apply_bc(u, self.dx, self.dy)
+            u = self.apply_bc(u, self.dx, self.dy)
         return u
 
+    def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1, use_numba= False):
+        
+        nx, ny = frame.nx, frame.ny
+        lx, ly = frame.lx, frame.ly
+        nt = frame.nt
+        dt = frame.lt/nt
+
+        x = np.linspace(0, lx, nx)
+        y = np.linspace(0, ly, ny)
+        X, Y = np.meshgrid(x, y, indexing='xy')  # X,Y sind shape (ny, nx)
+        xy = np.column_stack([X.ravel(), Y.ravel()])
+        u0 =ibvp.initial_u(xy[:,0], xy[:,1])
+        u0 = u0.reshape(ny, nx)
+        h = ibvp.heat_source(xy[:,0], xy[:,1])
+        h = h.reshape(ny, nx)
+
+        neumann_bc = HeatBoundaryCondition(ibvp.a, ibvp.b, ibvp.c)
+        dx, dy = lx/nx, ly/ny
+        solver = HeatExplicitSolver(ibvp.alpha, dx, dy, dt, neumann_bc.apply_robin, use_numba)
+        if not solver.check_stability():
+            print("CFL condition violated")
+
+        frames = [u0,]
+        u_means = []
+        u = u0.copy()
+        for n_frame in range(n_frames):
+            tval = frame.lt*(1+n_frame)/n_frames
+            u = solver.n_steps(u, h, t_steps_per_frame)
+            frames.append(u)
+            u_mean = u.mean()
+            u_means.append(u_mean)
+            print(f"Frame {tval:.2f}: u mean={u_mean:.6f}, ")
+        return frames, u_means
 
 ############
 

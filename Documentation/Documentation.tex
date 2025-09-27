@@ -105,7 +105,7 @@
   \renewcommand{\headrulewidth}{0.4pt}
   \renewcommand{\footrulewidth}{0.4pt}
   %\fancyhead[R]{\thepage}
-  \fancyhead[C]{The Heat Conduction Equation Equation and Machine Learning}
+  \fancyhead[C]{The Heat Conduction Equation and Machine Learning}
   % \fancyfoot[L]{\textcolor{footergray}{Robert Haas – Technical Software and Mathematics}}
   \fancyfoot[L]{\textcolor{footergray}{\today}}
   \fancyfoot[R]{\textcolor{footergray}{Page \thepage\ of \pageref{LastPage}}}
@@ -246,13 +246,13 @@ $\alpha $ & $\tfrac{\mathrm{m}^{d-1}}{\mathrm{s} }$ &  Thermal diffusivity & $ 1
 \label{TableTypicalValues}
 \end{table}
 \\
-\textbf{General Assumption:} From now on we assume that $\Omega $ is a  2D rectangular domain. Then the classical heat equation can be written as
+\textbf{General Assumption:} From now on we assume that $\Omega $ is a  2D quadratic domain $\Omega = (0.1)\times (0,1)$. Then the classical heat equation can be written as
 \begin{equation} \label{HeatEquation2D}
 \frac{\partial T}{\partial t} = \alpha \left( \frac{\partial^2 T}{\partial x^2} + \frac{\partial^2 T}{\partial y^2} \right) .
 \end{equation}
-\section{Numerical Methods}
-\subsection{Finite Difference Method}
-We approximate the second order spatial derivatives by
+\section{Finite Difference Method}
+The ideas of finite difference method is to approximate spatial derivatives by numerical difference quotients. Evaluating a difference quotients at a certain point $(x,y)$ requires its neighboring points $(x-\Delta x,y)$, $(x+\Delta x,y)$, $(x,y-\Delta y)$ and $(x,y+\Delta y)$. For this purpose a set of grid points $\{ (x_i, y_j) \| (i,j) \in I\} $ in $\Omega $. Since $\Omega = ( 0,1 ) \times ( 0,1 ) $ the grid points $\{ (x_i, y_j) $ are aligned with the coordinate axes.
+Setting $ h= \Delta x = \Delta y $ we approximate the second order spatial derivatives by
 \begin{eqnarray*}
 \Delta v(x,y) & \approx & \Delta_h v(x,y) \\
  & = & \frac{1}{h^2}\left(v(x+h, y) -2 v(x,y) + v(x-h,y) \right) \\
@@ -266,7 +266,7 @@ With a definite $(x,y)$ grid and an initial state $T_0 (x,y) $ at time $t=0$ an 
 \begin{equation*}
 u_1 = u_0 + \alpha h\Delta_h u_0,
 \end{equation*}
-where $ u_0 = T(0) $. This can be successive be done:
+where $ u_0 = T_0 $ evaluated at grid points. This can be successive be done:
 \begin{equation*}
 u_{k+1} = F_{\mathrm{explicit}} (u_k) = u_k + \alpha h \Delta_h u_k,
 \end{equation*}
@@ -288,9 +288,75 @@ whereas for the Crank-Nicolson method
 \tfrac{\tau }{h^2 } \leq \tfrac{1}{2\alpha }
 \end{equation*}
 must be fulfilled for $L^\infty $-stability. For more information, see \cite[p 112]{Ernst2015}.
+
 \section{Physics Informed Neural Networks (PINN)}
-We strongly follow the approach of \cite{aryal2024a}. The source code used therein can be found in \cite{aryal2024b}.
-A PINN approximates the solution $u(x,y,t)$ by a neural network $\hat{u}(x,y,t)$, with the loss function penali
+\emph{Classification} or \emph{approximation} are the typical applications of neural networks. A short introduction to neural networks can be found in \cite[pp. 809]{stoecker1995formeln}, \cite{rey2011neuralnetworks} and \cite{rojas1993neuronale}. Today the main applications of neural networks contain classification. On the other hand, neural networks can be used to approximate an (unknown) function. Physics informed neural networks are a special type of neural networks to solve mathematical equations of physics and engineering. Typically these equations are ordinary or partial differential equations. Whereas classical numerical solvers outperform this deep learning approach, trained PINN models can be easily reused, if, e.g. a finer spatial grid is needed or the geometry of the spatial domain varies slightly. In good cases these tasks can be done without a new training. Furthermore PINNs can be used to estimate parameters in the equation, if an approximate solution is given, e.g. by measurements. In PINNs the neural network is used as a function approximator. This approach can be found in \cite[Section 3.2]{lopez2008}. The activation functions of a neural network span a function space and a function is approximated by a linear combinations of copies of the activation functions each having different scaling and offset in its function argument. The coefficients, the scalings and offsets are simply weights of the neural network to be adjusted during training. Key ingredient of the learning procedure is the loss function which will be minimized during training. This loss function will be built up by loss terms arising from the mathematical equation to solve.
+That means that three loss terms will be added together to give the (total) training loss:
+\begin{enumerate}
+\item {\bf Physics loss:} The loss arising from deviations of the approximate solution $\hat{u}$ from the exact solution $u$. Generally, if $F(u) = 0$ is the mathematical equation, then the physics loss is $L_{\mathrm{Physics}} (w) = |F(w)|^2 $ where $w$ can be any admissible function. In case $w=u$ the equation $F(u) = 0$ is fulfilled and $L_{\mathrm{Physics}} (u) = 0 $ is minimal. For any approximate solution $\hat{u} $ we only have $L_{\mathrm{Physics}} (\hat{u}) = 0 $. So $L_{\mathrm{Physics}} $ penalizes deviation from the exact solution $u$.
+\item {\bf Initial loss:} Similarly, let $I(u) = 0$ denote the initial condition. Then the initial loss is defined as $L_{\mathrm{Initial}} (w) = |I(w)|^2 $.
+\item {\bf Boundary loss:} Finally, for a boundary operator $B(u) =0 $ the boundary loss is analogously defined as $L_{\mathrm{Boundary}} (w) = |B(w)|^2 $.
+\end{enumerate}
+To set up the PINN training the approach of \cite{aryal2024a} is used and extended. The source code used therein can be found in \cite{aryal2024b}. In this thesis an inhomogeneous heat conduction equation in two spatial dimensions with Dirichlet or Neumann boundary conditions is solved using PINNs. Let us shortly summarize the key features:
+\begin{enumerate}
+\item {\bf PINN architecture:} A feed forward neural network with five hidden layers, each of them containing 50 nodes is used. The network has input layer with three input nodes corresponding to the variables $x$, $y$, and $t$. The single node of the output layer is assigned to the approximate solution $\hat{u}$. 
+\item {\bf PINN Activation function:} All layers except the output layer use the hyperbolic tangent as activation function.
+\item {\bf PINN Solver:} To train the PINN the Adam solver of the Pytorch package is used with default settings and a learning rate of 1e-3.
+\item {\bf Sampling:} Random samples of $N \in \{ 1000,\, 8000 \} $ points, each for $x$, $y$ and $t$, which is a Monte-Carlo sampling.
+\end{enumerate}
+\section{Case Studies}
+\subsection{Case 1: Constant initial temperature with no-flux boundary conditions}
+This case is also discussed in \cite{aryal2024a}. With the introduces PINN setup, we use a thermal diffusivity $\alpha = 0.1 $ in the heat equation. Furthermore we have a Gaussian kernel as a bulk heat source, i.e.
+\begin{equation*}
+f(x,y,t) = S\cdot\mathrm{exp}\left(-\tfrac{(x^2+y^2)}{2r}\right),
+\end{equation*}
+with $r=0.1$ and heat strength $S=500.0 $. As initial condition at $t=0$ we set the temperature equal to 25 °C at every point in $\Omega $. We assume that there is now heat flux across the boundary of $\Omega $, i.e. $\tfrac{\partial u }{\partial n } = 0 $ at $\partial \Omega $. For the training a Pytorch scheduler is used to adjust the learning rate adaptively. The adjustment starts after a certain number of finished epochs. This number is the step size parameter of the scheduler. We have used 4,000 and 6,000 as step size. After passing this number of epochs the learning rate decreases from 1e-3 to 5e-4 and further, each time by halving. Training with three models on the this non-homogeneous initial-boundary problem leads to the following Adjustments and results:
+\begin{table}[h!] 
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cclc}
+\toprule
+\textbf{Parameter} & \textbf{Model 1} & \textbf{Model 2}& \textbf{Model 3}\\
+\midrule
+Epochs & 8,000 & 10,000 & 20,000\\
+Samples & 1,000 & 8,000 & 8,000 \\
+Step size & 4,000 & 6,000 & 6,000 \\
+Relative error & 19.03\% & 7.41 \% & 4.96 \% \\
+\bottomrule
+\end{tabular}}
+\caption{Adjustment and Results.}
+\label{AdjustmentAndResults1}
+\end{table}
+The relative error refers to the corresponding solution using the explicit finite-difference scheme. With more training epochs the relative error decreases.
+\subsection{Case 2: Constant initial temperature with Robin boundary conditions}
+In case 1 the domain $\Omega$ is constantly heated over time where the heat cannot dissipate over across the boundary $\partial \Omega $ due to the no-flux boundary condition imposed on $\partial \Omega $. This leads to permanently ascending temperatures over time without reaching an equilibrium. In real life such an isolated system with permanent constant heat support is not realistic. This can be overcome by either
+\begin{itemize}
+\item using another heat source which decreases heat supply over time to zero, or
+\item imposing other boundary conditions which allow for heat flux over the domain boundary.
+\end{itemize}
+In this case the latter approach is used by imposing a Robin boundary condition, i.e.
+\begin{equation*}
+a\cdot(u-u_0 ) + b\frac{\partial u}{\partial \nu_{\partial \Omega}} = 0,
+\end{equation*}
+where $  \nu_{\partial \Omega} $ is the outer unit normal at the boundary $\partial \Omega $, $u_0 $ the ambient temperature far from the domain $\Omega $ and its boundary $\partial \Omega $, i.e. far from the thermal boundary layer.
+With the choice $u_0 = 25\,^{\circ}\mathrm{C} $, $a=1/2 $ and $ b=1 $ we redo the simulation of case 1 where all other parameters are left unchanged.
+\begin{table}[h!] 
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cclc}
+\toprule
+\textbf{Parameter} & \textbf{Model 1} & \textbf{Model 2}& \textbf{Model 3}\\
+\midrule
+Epochs & 8,000 & 10,000 & 20,000\\
+Samples & 1,000 & 8,000 & 8,000 \\
+Step size & 4,000 & 6,000 & 6,000 \\
+Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
+\bottomrule
+\end{tabular}}
+\caption{Adjustment and Results.}
+\label{AdjustmentAndResults2}
+\end{table}
+\section{Discussion}
 \begin{enumerate}
 \item
 Calculating a solution of the Euler-Bernoulli equation using classical finite elements is much faster and more precise than using a PINN. Of course finite element methods have been just developed to solve linear mechanical problems and thus they are optimized for that purpose. The nonlinear and nested structure of  a neural network may be not adequate or optimal for that purpose.
@@ -320,31 +386,11 @@ K.-H. Hoffmann and G. Witterstein,
 \emph{Mathematische Modellierung: Grundprinzipien in Natur- und Ingenieurwissenschaften}, 
 Mathematik Kompakt, 1st ed. (corrected reprint), Birkhäuser, Basel, 2014.
 
-\bibitem{hoffmann2014modellierung}
-K.-H. Hoffmann and G. Witterstein, 
-\emph{Mathematische Modellierung: Grundprinzipien in Natur- und Ingenieurwissenschaften}, 
-Mathematik Kompakt, 1st ed. (corrected reprint), Birkhäuser, Basel, 2014.
-
-\bibitem{aryal2024a}
-S. Aryal, 
-\emph{Simulation of 2-dimensional heat conduction with physics-informed neural networks.}
-Bachelor thesis, University of Applied Sciences Ravensburg-Weingarten, 2024
-
-\bibitem{aryal2024b}
-S. Aryal, 
-\emph{Bachelor thesis: Pinns for 2d heat conduction.}
-Sourcecode of \cite{aryal2024a}, Link (checked at 2025-09-10): \url{https://github.com/Samman2571/Bachelor_thesis_PINNs_2D_Heat_Conduction}
-
 \bibitem{Ernst2015}
 O. Ernst,
 \emph{Numerik partieller Differentialgleichungen, Part 2}, 
 Lecture notes, University of Technology Chemnitz, 2015.
 Link (checked at 2025-09-10): \url{https://www.tu-chemnitz.de/mathematik/numa/lehre/pde-2015/Folien/pdeTeil2.pdf}
-
-\bibitem{schwarz1991methode}
-H.-R. Schwarz,
-\emph{Methode der finiten Elemente. Eine Einführung unter besonderer Berücksichtigung der Rechenpraxis},
-Leitfäden der angewandten Mathematik und Mechanik, Teubner Studienbücher, Volume 47, 3rd rev. ed., B. G. Teubner, Stuttgart, 1991.
 
 \bibitem{stoecker1995formeln}
 H.~Stöcker, 
@@ -359,21 +405,23 @@ G.~D. Rey, and K.~F. Wender
 \bibitem{rojas1993neuronale}
 R.~Rojas,
 \emph{Theorie der neuronalen Netze: Eine systematische Einführung},
-Springer-Lehrbuch, 1st ed. (corrected reprint 1996), Springer-Verlag, Berlin, 1993.
+Springer-Lehrbuch, 1st ed. (corrected reprint 1996), Springer-Verlag, Berlin, 1993.
 
+\bibitem{lopez2008}
+R. López González
+\emph{Neural Networks for Variational Problems in Engineering}
+PhD thesis, Technical University of Catalonia, 2008
+[Online]. Available: \url{https://digital.csic.es/bitstream/10261/310317/1/Tesis_Roberto_López.pdf}
 
+\bibitem{aryal2024a}
+S. Aryal, 
+\emph{Simulation of 2-dimensional heat conduction with physics-informed neural networks.}
+Bachelor thesis, University of Applied Sciences Ravensburg-Weingarten, 2024
 
-\bibitem{teloli2024solving}
-C.~Teloli, A.~Titarelli, A.~Guerrieri, and S.~Vidoli, 
-\emph{Solving linear beam dynamics with neural operators: A comprehensive study}, 
-Mechanics of Materials, vol. 190, 104226, 2024. [Online]. Available: \url{https://www.sciencedirect.com/science/article/pii/S0888327024010884}
-
-\begin{comment}
-\bibitem{timoshenko1951theory}
-S.~P. Timoshenko and J.~M. Gere, 
-\emph{Theory of Elastic Stability}, 
-2nd ed., McGraw-Hill, New York, 1961.
-\end{comment}
+\bibitem{aryal2024b}
+S. Aryal, 
+\emph{Bachelor thesis: Pinns for 2d heat conduction.}
+Sourcecode of \cite{aryal2024a}, Link (checked at 2025-09-10): \url{https://github.com/Samman2571/Bachelor_thesis_PINNs_2D_Heat_Conduction}
 
 \bibitem{code}
 Code samples used in this work: \url{https://github.com/Haasrobertgmxnet/HeatConduction}

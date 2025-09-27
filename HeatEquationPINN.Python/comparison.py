@@ -72,7 +72,7 @@ def pipeline1():
         u = model(x, y, t)
         return torch.mean((u - u0) ** 2)
 
-    def boundary_loss(model, x, y, t, length):
+    def boundary_loss_orig(model, x, y, t, length):
         u = model(x, y, t)
         x_boundary = (x <= 1e-6) | (x >= length - 1e-6)
         y_boundary = (y <= 1e-6) | (y >= length - 1e-6)
@@ -84,9 +84,55 @@ def pipeline1():
         loss_y = torch.mean(u_y[y_boundary] ** 2)
         return loss_x + loss_y
 
-    def heat_source(x, y, center_x, center_y, radius, strength, t):
+    def boundary_loss(model, x, y, t, length, a=None, b=None, c=None):
+        u = model(x, y, t)
+        x_left_boundary = (x <= 1e-6)
+        x_right_boundary = (x >= length - 1e-6)
+        y_lower_boundary = (y <= 1e-6)
+        y_upper_boundary = (y >= length - 1e-6)
+        u_x = torch.autograd.grad(u, x, grad_outputs=torch.ones_like(u),
+        create_graph=True)[0]
+        u_y = torch.autograd.grad(u, y, grad_outputs=torch.ones_like(u),
+        create_graph=True)[0]
+
+        if a is None:
+            return 0.0
+        if b is None:
+            return 0.0
+        if c is None:
+            return 0.0
+
+        if b == 0:
+            # print("Dirichlet boundary condition")
+            loss_boundary = torch.mean((a*u[x_left_boundary]-c)**2)
+            loss_boundary += torch.mean((a*u[x_right_boundary]-c)**2)
+            loss_boundary += torch.mean((a*u[y_lower_boundary]-c)**2)
+            loss_boundary += torch.mean((a*u[y_upper_boundary]-c)**2)
+            return 0.25*loss_boundary
+
+        if a == 0:
+            # print("Neumann boundary condition")
+            loss_boundary = torch.mean((- b*u_x[x_left_boundary]-c)**2)
+            loss_boundary += torch.mean((b*u_x[x_right_boundary]-c)**2)
+            loss_boundary += torch.mean(( - b*u_y[y_lower_boundary]-c)**2)
+            loss_boundary += torch.mean((b*u_y[y_upper_boundary]-c)**2)
+            return 0.25*loss_boundary
+
+        # print("Robin boundary condition")
+        loss_boundary = torch.mean((a*u[x_left_boundary] - b*u_x[x_left_boundary]-c)**2)
+        loss_boundary += torch.mean((a*u[x_right_boundary] + b*u_x[x_right_boundary]-c)**2)
+        loss_boundary += torch.mean((a*u[y_lower_boundary] - b*u_y[y_lower_boundary]-c)**2)
+        loss_boundary += torch.mean((a*u[y_upper_boundary] + b*u_y[y_upper_boundary]-c)**2)
+        return 0.25*loss_boundary
+        
+
+    def heat_source__(x, y, center_x, center_y, radius, strength, t):
         distance = torch.sqrt((x - center_x)**2 + (y - center_y)**2)
         return torch.where(t > 0, strength * torch.exp(-distance**2 / (2 * radius**2)), torch.zeros_like(t))
+
+    def heat_source(x, y, center_x, center_y, radius, strength, t):
+        squared_distance = (x - center_x)**2 + (y - center_y)**2
+        return torch.where(t > 0, strength * torch.exp(-squared_distance / (2 * radius**2)), torch.zeros_like(t))
 
     # Data from Aryal's thesis
 
@@ -109,7 +155,7 @@ def pipeline1():
     ## weights of residuals
     weight_physics = 1.0
     weight_initial = 1.0
-    weight_boundary = 1.0
+    weight_boundary = 2.0
 
     ### my value
     ## weight_physics = 20.0
@@ -120,7 +166,7 @@ def pipeline1():
 
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer,
-        step_size=3000,
+        step_size=4000,
         gamma=0.5
     )
         
@@ -142,7 +188,8 @@ def pipeline1():
         optimizer.zero_grad ()
         loss_physics = pde_loss(model , x, y, t, epsilon , f)
         loss_initial = initial_loss(model , x, y, torch.zeros_like(t), u0)
-        loss_boundary = boundary_loss(model , x, y, t, length)
+        # loss_boundary = boundary_loss_orig(model , x, y, t, length)
+        loss_boundary = boundary_loss(model, x, y, t, length, 0.5, 1, 12.5)
         loss = weight_physics * loss_physics + weight_initial * loss_initial + weight_boundary * loss_boundary
         loss.backward ()
         optimizer.step()
@@ -150,7 +197,7 @@ def pipeline1():
 
         current_loss = loss.item()
 
-        if current_loss < best_loss - 1e-20:  # 1e-6 = kleine Toleranz
+        if current_loss < best_loss - 1e-6:  # 1e-6 = kleine Toleranz
             best_loss = current_loss
             trigger_times = 0
             # Optional: bestes Modell speichern
@@ -169,11 +216,12 @@ def pipeline1():
                   f"phy={loss_physics.item():.6e}, ic={loss_initial.item():.6e}, bc={loss_boundary.item():.6e}, lr={current_lr:.6e}")
 
     print(f"Training finished and took {time.time()-start:.4} seconds.")
+    torch.save(model.state_dict(), 'model')
     model1 = copy.deepcopy(model)
     return model1, model1a
 
 # IS the pipeline of Aryal
-def pipeline2():
+def pipeline_ref():
     set_seed(0)
     # Define the PINN model
     class PINN(nn.Module):
@@ -271,16 +319,17 @@ def pipeline2():
 
         if epoch % 100 == 0 or epoch == epochs-1:
             current_lr = optimizer.param_groups[0]['lr']
-            print(f"Epoch {epoch:5d}: total={loss.item():.6e}, "
+            print(f"Ref Epoch {epoch:5d}: total={loss.item():.6e}, "
                   f"phy={loss_residual.item():.6e}, ic={loss_initial.item():.6e}, bc={loss_boundary.item():.6e}, lr={current_lr:.6e}")
 
     print(f"Training finished and took {time.time()-start:.4} seconds.")
     model2 = copy.deepcopy(model)
+    torch.save(model.state_dict(), 'model_ref')
     return model2, model2a
 
 def exec_comparison():
     model1, model1a = pipeline1()
-    model2, model2a = pipeline2()
+    model2, model2a = pipeline_ref()
 
     print("UNTRAINED MODELS")
     sd1 = model1a.state_dict()
@@ -294,6 +343,17 @@ def exec_comparison():
     print("TRAINED MODELS")
     sd1 = model1.state_dict()
     sd2 = model2.state_dict()
+
+    for name, param1 in sd1.items():
+        param2 = sd2[name]
+        diff = (param1 - param2).abs().max()
+        print(f"{name}: max abs diff = {diff.item()}")
+
+def compare_trained(model):
+    _, model_ref = pipeline_ref()
+    print("TRAINED MODELS")
+    sd1 = model.state_dict()
+    sd2 = model_ref.state_dict()
 
     for name, param1 in sd1.items():
         param2 = sd2[name]
