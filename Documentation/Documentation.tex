@@ -20,6 +20,16 @@
 \usepackage{bbm}
 \usepackage{mathrsfs}  
 
+% --- Theoremstyles definieren ---
+\theoremstyle{plain} % Standard (fett Überschrift, kursiv Text)
+\newtheorem{theorem}{Theorem}[section]
+
+\theoremstyle{definition} % Definitionsstil (fett Überschrift, normaler Text)
+\newtheorem{definition}{Definition}[section]
+
+\theoremstyle{remark} % Bemerkungsstil
+\newtheorem{remark}{Remark}[section]
+
 % Graphics
 \usepackage{graphicx}
 \usepackage{subcaption}
@@ -111,6 +121,10 @@
   \fancyfoot[R]{\textcolor{footergray}{Page \thepage\ of \pageref{LastPage}}}
 }
 
+\def\Temp{T}
+\def\uTemp{w}
+\def\volMeas{\mu}
+\def\surfMeas{S}
 \begin{document}
 
 
@@ -217,17 +231,17 @@ We now fix the following assumptions:
 \begin{enumerate}
 \item[(A1)] Heat conduction is the only mechanism of heat transfer. That means convection and radiation are not present.
 \item[(A2)] Heat sources and sinks in the bulk are nor present.
-\item[(A3)] The specific internal energy is given by $u = c_P \cdot T $, where $c_P$ is the specific heat capacity at constant pressure and $T$ is the temperature.
+\item[(A3)] The specific internal energy is given by $u = c_P \cdot\Temp$, where $c_P$ is the specific heat capacity at constant pressure and $T$ is the temperature.
 \item[(A4)] The heat flux per area is given by $ \boldsymbol{q} = - \kappa \nabla T $ (Fourier's law), where $\kappa $ denotes the thermal conductivity.
 \item[(A5)] The mass density $\varrho $ and the specific heat capacity $c_P$ do not change over time.
 \item[(A6)] The thermal conductivity $\kappa $ is a constant in space.
 \end{enumerate}
 These assumptions lead to the classical heat conduction equation given by
 \begin{equation}
-\varrho c_P \frac{\partial T}{\partial t} = \kappa \Delta T , \text{ or }
+\varrho c_P \frac{\partial \Temp}{\partial t} = \kappa \Delta \Temp , \text{ or }
 \end{equation}
 \begin{equation}
-\frac{\partial T}{\partial t} = \alpha \Delta T \text{ in } \Omega ,
+\frac{\partial T}{\partial t} = \alpha \Delta \Temp \text{ in } \Omega ,
 \end{equation}
 with the thermal diffusivity $\alpha = \kappa / c_P / \varrho $. The following table assigns the physical units to the quantities just introduced.
 \begin{table}[h!] 
@@ -248,8 +262,9 @@ $\alpha $ & $\tfrac{\mathrm{m}^{d-1}}{\mathrm{s} }$ &  Thermal diffusivity & $ 1
 \\
 \textbf{General Assumption:} From now on we assume that $\Omega $ is a  2D quadratic domain $\Omega = (0.1)\times (0,1)$. Then the classical heat equation can be written as
 \begin{equation} \label{HeatEquation2D}
-\frac{\partial T}{\partial t} = \alpha \left( \frac{\partial^2 T}{\partial x^2} + \frac{\partial^2 T}{\partial y^2} \right) .
+\frac{\partial \Temp}{\partial t} = \alpha \left( \frac{\partial^2 \Temp}{\partial x^2} + \frac{\partial^2 \Temp}{\partial y^2} \right) + f = \alpha \Delta \Temp + f .
 \end{equation}
+
 \section{Finite Difference Method}
 The ideas of finite difference method is to approximate spatial derivatives by numerical difference quotients. Evaluating a difference quotients at a certain point $(x,y)$ requires its neighboring points $(x-\Delta x,y)$, $(x+\Delta x,y)$, $(x,y-\Delta y)$ and $(x,y+\Delta y)$. For this purpose a set of grid points $\{ (x_i, y_j) \| (i,j) \in I\} $ in $\Omega $. Since $\Omega = ( 0,1 ) \times ( 0,1 ) $ the grid points $\{ (x_i, y_j) $ are aligned with the coordinate axes.
 Setting $ h= \Delta x = \Delta y $ we approximate the second order spatial derivatives by
@@ -262,22 +277,23 @@ and the first order time derivative by a forward difference
 \begin{equation*}
 \frac{\mathrm{d} w(t) )}{\mathrm{d} t } \approx \frac{w(t+\tau )}{\tau } .
 \end{equation*}
-With a definite $(x,y)$ grid and an initial state $T_0 (x,y) $ at time $t=0$ an approximation for the solution $T$ at time $t= 0 +\tau $ can be obtained via
+We now use $ \uTemp $ as an alias for $ \Temp $, i.e. $\uTemp = \Temp $.
+With a definite $(x,y)$ grid and an initial state $T_0 (x,y) $ at time $t=0$ an approximation for the solution $\uTemp$ at time $t= 0 +\tau $ can be obtained via
 \begin{equation*}
-u_1 = u_0 + \alpha h\Delta_h u_0,
+\uTemp_1 = \uTemp_0 + \alpha h\Delta_h \uTemp_0,
 \end{equation*}
-where $ u_0 = T_0 $ evaluated at grid points. This can be successive be done:
+where $ \uTemp_0 = T_0 $ evaluated at grid points. This can be successive be done:
 \begin{equation*}
-u_{k+1} = F_{\mathrm{explicit}} (u_k) = u_k + \alpha h \Delta_h u_k,
+\uTemp_{k+1} = F_{\mathrm{explicit}} (\uTemp_k) = \uTemp_k + \alpha h \Delta_h \uTemp_k,
 \end{equation*}
 what defines the explicit Euler method. In contrast the implicit method is given via
 \begin{equation*}
-u_{k+1} = F_{\mathrm{implicit}} (u_k, u_{k+1}) =u_k + \alpha h \Delta_h u_{k+1},
+\uTemp_{k+1} = F_{\mathrm{implicit}} (\uTemp_k, \uTemp_{k+1}) =\uTemp_k + \alpha h \Delta_h \uTemp_{k+1},
 \end{equation*}
-which requires to solve a system of linear equations to get $u_{k+1} $, but the numerical behavior of the implicit method is more robust.
+which requires to solve a system of linear equations to get $\uTemp_{k+1} $, but the numerical behavior of the implicit method is more robust.
 Combining explicit and implicit method leads to the Crank-Nicolson method as arithmetic mean of both methods
 \begin{equation*}
-u_{k+1} = \tfrac{1}{2}\left(  F_{\mathrm{explicit}} (u_k)  + F_{\mathrm{implicit}} (u_k, u_{k+1})  \right) .
+\uTemp_{k+1} = \tfrac{1}{2}\left(  F_{\mathrm{explicit}} (\uTemp_k)  + F_{\mathrm{implicit}} (\uTemp_k, \uTemp_{k+1})  \right) .
 \end{equation*}
 The stability of the explicit Euler method is limited by the CFL condition:
 \begin{equation*}
@@ -293,9 +309,9 @@ must be fulfilled for $L^\infty $-stability. For more information, see \cite[p 1
 \emph{Classification} or \emph{approximation} are the typical applications of neural networks. A short introduction to neural networks can be found in \cite[pp. 809]{stoecker1995formeln}, \cite{rey2011neuralnetworks} and \cite{rojas1993neuronale}. Today the main applications of neural networks contain classification. On the other hand, neural networks can be used to approximate an (unknown) function. Physics informed neural networks are a special type of neural networks to solve mathematical equations of physics and engineering. Typically these equations are ordinary or partial differential equations. Whereas classical numerical solvers outperform this deep learning approach, trained PINN models can be easily reused, if, e.g. a finer spatial grid is needed or the geometry of the spatial domain varies slightly. In good cases these tasks can be done without a new training. Furthermore PINNs can be used to estimate parameters in the equation, if an approximate solution is given, e.g. by measurements. In PINNs the neural network is used as a function approximator. This approach can be found in \cite[Section 3.2]{lopez2008}. The activation functions of a neural network span a function space and a function is approximated by a linear combinations of copies of the activation functions each having different scaling and offset in its function argument. The coefficients, the scalings and offsets are simply weights of the neural network to be adjusted during training. Key ingredient of the learning procedure is the loss function which will be minimized during training. This loss function will be built up by loss terms arising from the mathematical equation to solve.
 That means that three loss terms will be added together to give the (total) training loss:
 \begin{enumerate}
-\item {\bf Physics loss:} The loss arising from deviations of the approximate solution $\hat{u}$ from the exact solution $u$. Generally, if $F(u) = 0$ is the mathematical equation, then the physics loss is $L_{\mathrm{Physics}} (w) = |F(w)|^2 $ where $w$ can be any admissible function. In case $w=u$ the equation $F(u) = 0$ is fulfilled and $L_{\mathrm{Physics}} (u) = 0 $ is minimal. For any approximate solution $\hat{u} $ we only have $L_{\mathrm{Physics}} (\hat{u}) = 0 $. So $L_{\mathrm{Physics}} $ penalizes deviation from the exact solution $u$.
-\item {\bf Initial loss:} Similarly, let $I(u) = 0$ denote the initial condition. Then the initial loss is defined as $L_{\mathrm{Initial}} (w) = |I(w)|^2 $.
-\item {\bf Boundary loss:} Finally, for a boundary operator $B(u) =0 $ the boundary loss is analogously defined as $L_{\mathrm{Boundary}} (w) = |B(w)|^2 $.
+\item {\bf Physics loss:} The loss arising from deviations of the approximate solution $\hat{\uTemp}$ from the exact solution $u$. Generally, if $F(\uTemp) = 0$ is the mathematical equation, then the physics loss is $L_{\mathrm{Physics}} (w) = |F(w)|^2 $ where $w$ can be any admissible function. In case $w=\uTemp$ the equation $F(u) = 0$ is fulfilled and $L_{\mathrm{Physics}} (\uTemp) = 0 $ is minimal. For any approximate solution $\hat{\uTemp} $ we only have $L_{\mathrm{Physics}} (\hat{\uTemp}) = 0 $. So $L_{\mathrm{Physics}} $ penalizes deviations from the exact solution $\uTemp$.
+\item {\bf Initial loss:} Similarly, let $I(\uTemp) = 0$ denote the initial condition. Then the initial loss is defined as $L_{\mathrm{Initial}} (w) = |I(w)|^2 $.
+\item {\bf Boundary loss:} Finally, for a boundary operator $B(\uTemp) =0 $ the boundary loss is analogously defined as $L_{\mathrm{Boundary}} (w) = |B(w)|^2 $.
 \end{enumerate}
 To set up the PINN training the approach of \cite{aryal2024a} is used and extended. The source code used therein can be found in \cite{aryal2024b}. In this thesis an inhomogeneous heat conduction equation in two spatial dimensions with Dirichlet or Neumann boundary conditions is solved using PINNs. Let us shortly summarize the key features:
 \begin{enumerate}
@@ -328,6 +344,69 @@ Relative error & 19.03\% & 7.41 \% & 4.96 \% \\
 \label{AdjustmentAndResults1}
 \end{table}
 The relative error refers to the corresponding solution using the explicit finite-difference scheme. With more training epochs the relative error decreases.
+
+\begin{table}[h!] 
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{c}
+\toprule
+Spatial Average of the calculated Temperatures\\
+\midrule
+\includegraphics[width=0.8\textwidth]{case1_charts/Compi.png} \\
+\bottomrule
+\end{tabular}}
+\caption{Temperature averages for explicit and PINN solver.}
+\label{AverageTempeatures1}
+\end{table}
+
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cc}
+\toprule
+Explicit Solver& PINN\\
+\midrule
+\includegraphics[width=0.5\textwidth]{case1_charts/Explicit/Frame10.png} & \includegraphics[width=0.5\textwidth]{case1_charts/PINN/Frame10.png}\\
+\includegraphics[width=0.5\textwidth]{case1_charts/Explicit/Frame30.png} & \includegraphics[width=0.5\textwidth]{case1_charts/PINN/Frame30.png}\\
+\includegraphics[width=0.5\textwidth]{case1_charts/Explicit/Frame50.png} & \includegraphics[width=0.5\textwidth]{case1_charts/PINN/Frame50.png}\\
+\bottomrule
+\end{tabular}}
+\caption{Solution to different time frames.}
+\label{SolutionsTimeframes1}
+\end{table}
+
+The behaviour of the averaged temperatures shown in Figure (\ref{AverageTempeatures1}) reveals a serious problem which is addressed by the following theorem.
+\begin{theorem}[Satz von Pythagoras]
+With no-flux boundary conditions, i.e. zero normal derivatives of $\uTemp $ at the boundary of $\Omega $ and time-constant bulk heating by internal heat sources $f$ solutions $\uTemp $ of the heat equation (\ref{HeatEquation2D}) will attain inifinite large temperatures when the time $t$ tends to zero.
+\end{theorem}
+
+\begin{proof}
+We consider the time-space integrated version of (\ref{HeatEquation2D}), i.e.
+\begin{equation*}
+\int_0^t \int_\Omega \frac{\partial \uTemp}{\partial t} \mathrm{d}\volMeas \mathrm{d}t = \alpha \int_0^t \int_\Omega \Delta\uTemp \mathrm{d}\volMeas \mathrm{d}t + \int_0^t \int_\Omega f \mathrm{d}\volMeas \mathrm{d}t .
+\end{equation*}
+Modifying the left hand side we have
+\begin{eqnarray*}
+\int_0^t \int_\Omega \frac{\partial \uTemp}{\partial t} \mathrm{d}\volMeas \mathrm{d}t & = &  \int_\Omega \int_0^t \frac{\partial \uTemp}{\partial t} \mathrm{d}t \mathrm{d}\volMeas \\
+& = & \int_\Omega \uTemp (t) \mathrm{d}\volMeas - \int_\Omega \uTemp (0) \mathrm{d}\volMeas .
+\end{eqnarray*}
+Since $f$ does not depend upon time $t$ we obtain
+\begin{eqnarray*}
+\int_\Omega \uTemp (t) \mathrm{d}\volMeas & = & \int_\Omega \uTemp (0) \mathrm{d}\volMeas + \alpha \int_0^t \int_\Omega \Delta\uTemp \mathrm{d}\volMeas \mathrm{d}t + \int_0^t \int_\Omega f \mathrm{d}\volMeas \mathrm{d}t \\
+& = & \int_\Omega \uTemp (0) \mathrm{d}\volMeas + \alpha \int_0^t \int_{\partial \Omega } \frac{\partial \uTemp}{\partial \nu_{\partial\Omega} } \mathrm{d}\surfMeas \mathrm{d}t + t \int_\Omega f \mathrm{d}\volMeas ,
+\end{eqnarray*}
+where we have applied the Gauss-Green theorem, see \cite[p. 288]{rudin1976} and \cite[p.312]{browder2001}, on $ \int_0^t \int_\Omega \Delta\uTemp \mathrm{d}\volMeas \mathrm{d}t $. Now, using the no-flux boundary condition we have
+\begin{eqnarray*}
+\mathrm{sup}_{(x,y) \in \Omega } |\uTemp(x,y) | & \geq & \frac{1}{\volMeas (\Omega )} 
+\int_\Omega \uTemp (t) \mathrm{d}\volMeas \\
+& \geq & \frac{\alpha}{\volMeas (\Omega )} \int_0^t \int_{\partial \Omega } \frac{\partial \uTemp}{\partial \nu_{\partial\Omega} } \mathrm{d}\surfMeas \mathrm{d}t + \frac{t}{\volMeas (\Omega )}  \int_\Omega f \mathrm{d}\volMeas \\
+& \geq & \frac{\alpha}{\volMeas (\Omega )} \int_0^t \int_{\partial \Omega } 0\; \mathrm{d}\surfMeas \mathrm{d}t + \mathrm{const } \cdot t \\
+& \geq &  \mathrm{const } \cdot t ,
+\end{eqnarray*}
+that is $ \| \uTemp \|_{L^\infty (\Omega )} =  \mathrm{sup}_{(x,y) \in \Omega } |\uTemp(x,y, t) | $ tends to infinity as $ t\rightarrow \infty $.
+\end{proof}
+
+
 \subsection{Case 2: Constant initial temperature with Robin boundary conditions}
 In case 1 the domain $\Omega$ is constantly heated over time where the heat cannot dissipate over across the boundary $\partial \Omega $ due to the no-flux boundary condition imposed on $\partial \Omega $. This leads to permanently ascending temperatures over time without reaching an equilibrium. In real life such an isolated system with permanent constant heat support is not realistic. This can be overcome by either
 \begin{itemize}
@@ -356,23 +435,41 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
 \caption{Adjustment and Results.}
 \label{AdjustmentAndResults2}
 \end{table}
-\section{Discussion}
-\begin{enumerate}
-\item
-Calculating a solution of the Euler-Bernoulli equation using classical finite elements is much faster and more precise than using a PINN. Of course finite element methods have been just developed to solve linear mechanical problems and thus they are optimized for that purpose. The nonlinear and nested structure of  a neural network may be not adequate or optimal for that purpose.
-\item
-Estimating the elastic modulus from simulated deflection values is a rather data-driven problem and the PINN approach fits far better there. With a careful adjustment of the network architecture, the solver adjustments and the loss contributions it was possible to calculate results with very satisfactory precision in case of 99 samples.
-\item
-For one single sample the estimation of elastic modulus failed producing results with poor accuracy. The reason is an appropriate choice of initial weights of the PINN and can be solved using another initial set up.
-\item
-The very fine and careful setup of the network architecture, the solver settings and the loss balancing may be improved by varying these parameters in a systematic way. It is desirable to reduce the number of epochs without loosing precision. This probably can be achieved by another balancing of the loss contributions, a modification of the PINN architecture and better settings for the solver.
-\item
-The calculations have been done in Python using Pytorch. To reduce the calculation time an implementation in C++ would be more adequate. One of the most performant  C++ frameworks is OpenNN which is far faster than Tensorflow or Pytorch. Unfortunately, OpenNN does not really support the use of PINNs, especially there is no automatic differentiation and no possibility to access the loss function of the hidden layers via the OpenNN API. The other C++ Machine Learning framework, MLPack, has similar difficulties with PINN and does not support PINNs very well.
-\item
-A way to implement a PINN study in C++ could be the use of the Pytorch C++ API. That may be as not as fast as OpenNN or MLPack but faster than any Python implementation.
-\end{enumerate}
 
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{c}
+\toprule
+Spatial Average of the calculated Temperatures\\
+\midrule
+\includegraphics[width=0.8\textwidth]{case2_charts/Compi.png} \\
+\bottomrule
+\end{tabular}}
+\caption{Temperature averages for explicit and PINN solver..}
+\label{AverageTempeatures1}
+\end{table}
 
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cc}
+\toprule
+Explicit Solver& PINN\\
+\midrule
+\includegraphics[width=0.5\textwidth]{case2_charts/Explicit/Frame10.png} & \includegraphics[width=0.5\textwidth]{case2_charts/PINN/Frame10.png}\\
+\includegraphics[width=0.5\textwidth]{case2_charts/Explicit/Frame30.png} & \includegraphics[width=0.5\textwidth]{case2_charts/PINN/Frame30.png}\\
+\includegraphics[width=0.5\textwidth]{case2_charts/Explicit/Frame50.png} & \includegraphics[width=0.5\textwidth]{case2_charts/PINN/Frame50.png}\\
+\bottomrule
+\end{tabular}}
+\caption{Solution to difeerent time frames.}
+\label{SolutionsTimeframes1}
+\end{table}
+
+% \section{Discussion}
+
+% \section{Appendix A Trained Models}
+\newpage
 \newpage
 \begin{thebibliography}{9}
 
@@ -422,6 +519,14 @@ Bachelor thesis, University of Applied Sciences Ravensburg-Weingarten, 2024
 S. Aryal, 
 \emph{Bachelor thesis: Pinns for 2d heat conduction.}
 Sourcecode of \cite{aryal2024a}, Link (checked at 2025-09-10): \url{https://github.com/Samman2571/Bachelor_thesis_PINNs_2D_Heat_Conduction}
+
+\bibitem{rudin1976}
+\emph{Principles of Mathematical Analysis},
+3rd ed., McGraw-Hill International Editions
+
+\bibitem{browder2001}
+\emph{Mathematical Analysis},
+Corrected 3rd printing., Springer-Verlag Berlin Heidelberg New York, 2001.
 
 \bibitem{code}
 Code samples used in this work: \url{https://github.com/Haasrobertgmxnet/HeatConduction}
