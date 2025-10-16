@@ -39,3 +39,11 @@ class HeatBoundaryCondition:
         u_new[:,-1] = (self.c*dy - self.b*u[:,-2]) / (-self.b + self.a*dy)
 
         return u_new
+
+    def to_tuple_x(self):
+        return (self.a, self.b, self.c,
+                self.a, self.b, self.c)
+
+    def to_tuple_y(self):
+        return (self.a, self.b, self.c,
+                self.a, self.b, self.c)

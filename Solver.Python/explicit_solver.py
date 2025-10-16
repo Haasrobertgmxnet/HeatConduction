@@ -53,7 +53,7 @@ class HeatExplicitSolver():
         return u
 
     def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1, use_numba= False):
-        
+        print("Explicit solver")
         nx, ny = frame.nx, frame.ny
         lx, ly = frame.lx, frame.ly
         nt = frame.nt

@@ -36,6 +36,9 @@
     <Compile Include="function_set.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="green_function.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="ibvp_data.py">
       <SubType>Code</SubType>
     </Compile>

@@ -138,7 +138,7 @@ def pipeline1():
 
     ## Learning data
     leraning_rate = 1e-3
-    epochs = 8000
+    epochs = 20000
     
     ## NN Architecture
     hid_layers = 5
@@ -166,12 +166,12 @@ def pipeline1():
 
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer,
-        step_size=4000,
+        step_size=6000,
         gamma=0.5
     )
         
-    n_points= 1000
-    total_time = 5.0
+    n_points= 15000
+    total_time = 60.0
 
     # pre config early stopping
     best_loss = float('inf')     # bester bisheriger Verlust
