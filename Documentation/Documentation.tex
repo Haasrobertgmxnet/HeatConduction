@@ -23,6 +23,7 @@
 % --- Theoremstyles definieren ---
 \theoremstyle{plain} % Standard (fett Überschrift, kursiv Text)
 \newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}{Lemma}[section]
 
 \theoremstyle{definition} % Definitionsstil (fett Überschrift, normaler Text)
 \newtheorem{definition}{Definition}[section]
@@ -123,8 +124,12 @@
 
 \def\Temp{T}
 \def\uTemp{u}
+\def\wTemp{w}
+\def\Laplace{\Delta}
 \def\volMeas{\mu}
 \def\surfMeas{S}
+\def\Green{\mathscr{G}}
+
 \begin{document}
 
 
@@ -185,6 +190,7 @@ This documentation presents numerical studies for the 2D heat conduction equatio
 \newpage
 
 \section{The classical Heat Equation}
+\subsection{The Energy Balance and the Derivation of the Heat Equation}
 We now derive the heat equation from the energy balance. For further reading see \cite[pp 207]{eck2008modellierung} and \cite[pp 105]{hoffmann2014modellierung}
 Heat conduction describes the transfer of thermal energy in materials and is governed by the heat equation. The mechanism of heat conduction takes places on the scale of atoms and molecules and their local motion as mechanism to transfer heat. 
 We consider an open spatial domain $\Omega \subset \mathbbm{R}^d $ where the heat conduction is investigated. 
@@ -238,10 +244,10 @@ We now fix the following assumptions:
 \end{enumerate}
 These assumptions lead to the classical heat conduction equation given by
 \begin{equation}
-\varrho c_P \frac{\partial \Temp}{\partial t} = \kappa \Delta \Temp , \text{ or }
+\varrho c_P \frac{\partial \Temp}{\partial t} = \kappa \Laplace \Temp , \text{ or }
 \end{equation}
 \begin{equation}
-\frac{\partial T}{\partial t} = \alpha \Delta \Temp \text{ in } \Omega ,
+\frac{\partial T}{\partial t} = \alpha \Laplace \Temp \text{ in } \Omega ,
 \end{equation}
 with the thermal diffusivity $\alpha = \kappa / c_P / \varrho $. The following table assigns the physical units to the quantities just introduced.
 \begin{table}[h!] 
@@ -260,10 +266,214 @@ $\alpha $ & $\tfrac{\mathrm{m}^{d-1}}{\mathrm{s} }$ &  Thermal diffusivity & $ 1
 \label{TableTypicalValues}
 \end{table}
 \\
-\textbf{General Assumption:} From now on we assume that $\Omega $ is a  2D quadratic domain $\Omega = (0.1)\times (0,1)$. Then the classical heat equation can be written as
+\textbf{General Assumption:} From now on we assume that $\Omega $ is a  2D quadratic domain $\Omega = (0,1)\times (0,1)$. Then the classical heat equation can be written as
 \begin{equation} \label{HeatEquation2D}
-\frac{\partial \Temp}{\partial t} = \alpha \left( \frac{\partial^2 \Temp}{\partial x^2} + \frac{\partial^2 \Temp}{\partial y^2} \right) + f = \alpha \Delta \Temp + f .
+\frac{\partial \Temp}{\partial t} = \alpha \left( \frac{\partial^2 \Temp}{\partial x^2} + \frac{\partial^2 \Temp}{\partial y^2} \right) + f = \alpha \Laplace \Temp + f .
 \end{equation}
+
+\subsection{Initial and Boundary Conditions}
+For a complete well-posed the heat conduction problem (\ref{HeatEquation2D}) has to be completed with initial and boundary values. Robin boundary conditions cover Dirichlet and Neumann boundary conditions, i.e.
+\begin{equation*}
+a \Temp + b \frac{\partial \Temp}{\partial \nu } = c, \text{ or } \gamma (\Temp - \Temp_b ) + \frac{\partial \Temp}{\partial \nu } = 0, \text{ on }\partial \Omega \times (0,T)
+\end{equation*}
+for solutions $\Temp $ of $ \partial \Temp / \partial t = \alpha\Laplace \Temp +f $ and $a \Temp_b = c, \; \gamma = a/b $.
+
+ A typical initial condition which will be used here is $ \Temp (x,y,0)= \Temp_0 (x, y) $. 
+
+\section{Eigenfunctions and Green's Function}
+
+The idea of Green's function is to provide an exact solution which  fulfills (\ref{HeatEquation2D}) subject to initial and boundary condition. For simple domains $\Omega $ an analytical expression can be calculated which can be used to calculate values of $ \Temp $ at every spatial point $(x,y) \in \Omega $ to any time $t>0 $. For difficult domains it is not possible to derive a useful analytical expression for the Green's function that allows for value evaluations of $\Temp$. Nevertheless Green's function allow to get insights and estimates for a solution. Since the solution of a well-posed problem is unique, insights, e.g. a-priori estimates and regularity results from Green's function are valid for the solution of the problem no matter in which way this solution has been calculated.
+
+\subsection{The homogeneous Heat Conduction Problem}
+To construct a Green's function first a particular solution of the homegenous problem, i.e.
+\begin{eqnarray} \label{homogenHeatC}
+\frac{\partial \wTemp }{\partial t } &=& \alpha\Laplace \wTemp  , \text{ in } \Omega , \\
+\wTemp (x,y,0 ) & = & \wTemp_0(x,y) \label{homogenIC} , \\
+\gamma \wTemp + \frac{\partial \wTemp }{\partial \nu } &=& 0 \text{ on } \partial \Omega  \label{homogenBC} .
+\end{eqnarray}
+has to be constructed. For this purpose we closely follow \cite[p. 50 f]{meinhold1990pdg}.
+
+First we apply a product approach $\wTemp (x,y,t) = \Psi (x,y) \cdot \Theta (t) $ for $ \wTemp $. Then (\ref{homogenHeatC}) turns into $ \Psi (x,y) \cdot \Theta' (t) = \alpha\Laplace \Psi (x,y) \cdot \Theta (t) $ which can be rewritten as
+\begin{equation}\label{homogenHeatC1}
+\frac{\Theta' (t)}{\alpha \Theta (t) } = \frac{\Laplace \Psi (x,y) }{\Psi (x,y) } = -\Lambda .
+\end{equation}
+Equation (\ref{homogenHeatC1}) can be fulfilled, only if every quotient therein is constant and hence $ \Lambda $ is a constant. This leads to two eigenvalue problems:
+\begin{eqnarray} 
+\Theta' (t) = -\alpha \Lambda \Theta (t) , \text{ and } \label{eigenvalsODE}\\
+\Laplace \Psi (x,y) = -\Lambda \Psi (x,y) . \label{eigenvalsLaplace}
+\end{eqnarray}
+We skip the case $ \Lambda < 0 $ and classical solution theory of linear ordinary differential equations leads to the solution $ \Theta (t) = A_0 \mathrm{exp}(-\alpha\Lambda (t-t_0)) $ of (\ref{eigenvalsODE}). With $t_0 = 0$ this is $ \Theta (t) = A_0 \mathrm{exp}(-\alpha\Lambda t) $ for $ \Lambda > 0 $. For $ \Lambda = 0$ the equation (\ref{eigenvalsODE}) is solved by a constant. 
+
+We are now going to solve (\ref{eigenvalsLaplace}). Again we adopt a product approach $ \Psi (x,y) = X(x) \cdot Y(y) $ which is reasonable for a cartesian-like domain $ \Omega = (0,1) \times (0,1) $. Then (\ref{eigenvalsLaplace}) turns into $ X''(x) Y(y) +X(x) Y''(y) = -\Lambda X(x)Y(y) $, or
+\begin{equation} \label{eigenvalsLaplace2}
+\frac{X''(x)}{X(x)} + \frac{Y''(y)}{Y(y)} = - \Lambda .
+\end{equation}
+Every summand in (\ref{eigenvalsLaplace2}) must be a constant, thus
+\begin{equation}  \label{eigenvalsLaplace3}
+\frac{X''(x)}{X(x)} = -\mu^2, \text{ and } \frac{Y''(y)}{Y(y)} = -\lambda^2 ,\text{ and } \mu^2 + \lambda^2 = \Lambda ,
+\end{equation}
+with constants $\mu $ and $\lambda $. The equations (\ref{eigenvalsLaplace3}) describe two Sturm-Liouville eigenvalue problems, cf. \cite[p. 285]{walter2000ode}, if reasonable boundary values are provided. The solution of (\ref{eigenvalsLaplace3}) is given by
+\begin{equation}
+X(x) =
+\begin{cases}
+A_1 x + A_2, &\text{ if } \mu = 0, \\
+B_1 \mathrm{sin}(\mu x) + B_2 \mathrm{cos}(\mu x), & \text{ otherwise. }
+\end{cases}
+\end{equation}
+%For $ \mu = 0 $ (\ref{eigenvalsLaplace3}) is solved by $ X(x) = A_1 x + A_2 $. For $ \mu \not= 0 $ $ X(x) = B_1 \mathrm{sin}(\mu x) + B_2 \mathrm{cos}(\mu x) $ solves (\ref{eigenvalsLaplace3}).
+
+We are now going to match the boundary conditions (\ref{homogenBC}) for the solution $X$. For $w (x,y,t) = X(x)\cdot Y(y) \cdot \Theta (t) $ (\ref{homogenBC}) reduces to
+\begin{equation*}
+\gamma X(x) + \frac{\partial X(x) }{\partial \nu } = 0 \text{ on } \{ 0,1\}\times (0,1) .
+\end{equation*}
+The normal derivative $ \partial X / \partial \nu $ on $ \{ 0,1\}\times (0,1) $ is given by
+\begin{equation*}
+\frac{\partial X(x) }{\partial \nu } =
+\begin{cases}
+-X'(0) & \text{ on } \{ 0\}\times (0,1), \\
+X'(1) & \text{ on } \{ 1\}\times (0,1) ,
+\end{cases}
+\end{equation*}
+and the boundary condition as
+\begin{equation}
+0 = \gamma X(x) + \frac{\partial X(x) }{\partial \nu } =
+\begin{cases}
+\gamma B_2 - \mu B_1  & \text{ for } \mu \not= 0 \text{ on } \{ 0\}\times (0,1), \label{CaseMu}\\
+(\gamma B_1 - \mu B_2) \mathrm{sin}(\mu ) + \dots\\
+\dots +  (\gamma B_2 + \mu B_1) \mathrm{cos }(\mu ) & \text{ for } \mu \not= 0 \text{ on } \{ 1\}\times (0,1), \\
+\gamma A_2 - A_1 & \text{ for } \mu = 0 \text{ on } \{ 0\}\times (0,1), \\
+\gamma (A_1 + A_2 ) + A_1 & \text{ for } \mu = 0 \text{ on } \{ 1\}\times (0,1) .
+\end{cases}
+\end{equation}
+For $ \mu \not= 0 $ the first two cases of (\ref{CaseMu}) can be combined to give
+\begin{equation} \label{NonZeroMuBC}
+B_1 \cdot \left((\gamma^2  - \mu^2) \mathrm{sin}(\mu ) + 2 \mu \gamma \mathrm{cos}(\mu ) \right) = 0 .
+\end{equation}
+The term of the left hand side of (\ref{NonZeroMuBC}) is a function $F$ of $\mu $. Then the zeros of $F$ are solutions of (\ref{NonZeroMuBC}). The following chart shows this function $F$ and its first zeros for $\gamma = 1/2 $.
+\begin{table}[h!] 
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{c}
+\toprule
+Function $ F(\mu ) = (\gamma^2  - \mu^2) \mathrm{sin}(\mu ) + 2 \mu \gamma \mathrm{cos }(\mu )$ and its Zeros\\
+\midrule
+\includegraphics[width=0.9\textwidth]{Images/MuFunc3.png} \\
+\bottomrule
+\end{tabular}}
+%\caption{Function $ F(\mu ) = (\gamma^2  - \mu^2) \mathrm{sin}(\mu ) + 2 \mu \gamma \mathrm{cos }(\mu )$ and its Zeros.}
+% \label{AverageTempeatures1}
+\end{table}
+%
+As one notices, $\mu = 0 $ is a zero of $ F(\mu ) $. Thus there is the question, if $\mu = 0 $ could be admissible for the approach $ X(x) = B_1 \mathrm{sin}(\mu x) + B_2 \mathrm{cos}(\mu x) $. In this case $X$ reduces to $ X(x) = B_2 \mathrm{cos}(\mu x) = B_2 $ and this inserted into (\ref{homogenBC}) is $ \gamma B_2 + 0 = 0 $ which is $ B_2 = 0 $  and $X(x) = 0 $ whenever $ \gamma \not= 0 $. A similar consideration leads to the conclusion that the approach $ X(x) = A_1 x + A_2 $ leads to $A_1 = A_2 = 0$ and again to $ X(x) = 0$. But $X(x) = 0 $ cannot serve as an eigenelement. Thus, we have proved the following theorem:
+\begin{theorem}[Eigenvalues are non-zero for $\gamma \not= 0$]
+In case of proper Robin boundary conditions, i.e. $ \gamma \not=0 $ the value $ \mu = 0$ is not an element of the spectrum, i.e. it is \emph{not} an eigenvalue. 
+\end{theorem}
+%
+For $ \gamma = 0 $ which indicates homogeneous Neumann boundary conditions (\ref{NonZeroMuBC}) reduces to $ \mu^2 B_1 \mathrm{sin}(\mu ) = 0$. Since $ \mu $ was assumed to be non-zero, only $B_1 = 0$ is possible and $ X(x) = B_2 \mathrm{cos}(\mu x ) $. Then, from the second case of (\ref{CaseMu}) follows $ \mu \in \{ n \cdot \pi \text{ for all } n \in \mathbbm{N} \cup \{ 0 \} \} $. 
+
+\begin{table}[h!] 
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{ccc}
+\toprule
+& \textbf{Neumann BC} & \textbf{Robin BC}\\
+\midrule
+$\gamma $ & 0 & non-zero\\
+$\mu $ & $ n \pi$, $ n\in \mathbbm{N}\cup \{ 0 \} $ & $ \{ \mu : (\gamma^2  - \mu^2) \mathrm{sin}(\mu ) + 2 \mu \gamma \mathrm{cos}(\mu ) =0  \}\setminus \{ 0 \} $ \\
+1st eigenvalues $\mu^2 $  & 0, $\pi^2 $, $ 4 \pi^2 $ & 0.921963, 11.771859, 41.450383 \\
+\bottomrule
+\end{tabular}}
+\caption{Comparison of the different boundary conditions.}
+\label{ComparisonBC}
+\end{table}
+In case of $\gamma \not= 0 $ the eigenfunctions are given by
+\begin{equation} \label{ONB1}
+\phi_n (x) = C_n \cdot \left(\mathrm{sin} (\mu_n x) + \frac{\mu_n }{\gamma } \mathrm{cos} (\mu_n x) \right) \text{ where } n>0 ,
+\end{equation}
+and $C_n $ so that $ \| phi_n \|_{L^2} = 1 $. In detail, $C_n $ fulfills
+\begin{equation}
+C_n  = \left( \frac{1}{\mu_n } \left( \frac{1}{2} \left( 1+ \left(\frac{\mu_n }{\gamma } \right)^2 \right) \mu_n^2 + \frac{1}{2} \left( \left(\frac{\mu_n }{\gamma } \right)^2 -1 \right) \mathrm{sin} (\mu_n ) \mathrm{cos} (\mu_n ) + \frac{\mu_n }{\gamma } \mathrm{sin}^2 (\mu_n ) \right)\right)^{-\tfrac{1}{2} }
+\end{equation}
+
+In case of $\gamma = 0 $ the eigenfunctions are given by
+\begin{equation} \label{ONB2}
+\phi_0 (x) = 1 \text{ and } \phi_n (x) = D_n \cdot \mathrm{cos} (\mu_n x) \text{ where } n>0 ,
+\end{equation}
+and $D_n = \sqrt{2/\mu_n } $.
+
+Since $ -\Laplace : H_1 \rightarrow H_2 $ is a self-adjoint linear operator between two appropriate Hilbert spaces $H_1 $ and  $H_2 $ the systems (\ref{ONB1}) and (\ref{ONB2}) form an orthonormal basis of $H_1$. A possible and safe choice for the Hilbert spaces is $H_1 = H^{2,2} (0,1 ) $ and $H_2 = L^2 (0,1  ) $. 
+As $x$ varies in $(0,1)$ so $y$ does and the consideration done for $x$ can analogously applied to the $y$ variable. So for $ \gamma \not= 0 $ we have
+\begin{equation}
+\phi_n (y) = C_n \cdot \left(\mathrm{sin} (\mu_n y) + \frac{\mu_n }{\gamma } \mathrm{cos} (\mu_n y) \right) \text{ where } n>0 ,
+\end{equation}
+with the same numbers $\mu_n $ and $C_n $.
+Defining $ \phi_{m,n} (x,y) = \phi_m (x) \cdot \phi_n (y) $ we have an orthonormal basis of $ H^{2,2} (\Omega ) = H^{2,2} (0,1 ) \times H^{2,2} (0,1 ) $.
+Then, every function $ f \in H^{2,2} (\Omega ) $ can be written as $ f = \sum_{m,n \in I \times I } (\phi_{m,n}, f)_{L^2 } \phi_{m,n} $, where the index set $I = \mathbbm{N} $ in case of $ \gamma \not= 0 $, and $I = \mathbbm{N} \cup \{ 0 \} $ in case of $ \gamma = 0 $.
+We are now able to define Green's function as
+\begin{equation}
+\Green (x,y,x',y',\tau ) = H(\tau ) \sum_{m,n \in I \times I } \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot \mathrm{exp} (-\alpha \phi_{m,n} \tau ),
+\end{equation}
+where $H$ is the Heaviside function which is one for $\tau > 0 $ and zero otherwise. With the help of this function a solution $ \wTemp $ can be constructed as
+\begin{equation}
+\wTemp (x,y,t)  = \int_0^1 \int_0^1  \Green (x,y,x',y', 0 ) \wTemp_0 (x',y') \mathrm{d}x' \mathrm{d}y' + \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t'
+\end{equation}
+
+\begin{equation}
+\Temp (x,y,t)  = \int_0^1 \int_0^1  \Green (x,y,x',y', 0 ) \Temp_0 (x',y') \mathrm{d}x' \mathrm{d}y' + \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t'
+\end{equation}
+%
+%
+\subsection{The OLD}
+We now are going to transform the problem by $ \wTemp = \Temp - \Temp_b $, $\wTemp_0 = \Temp_0 - \Temp_b $. Then $ \wTemp $ fulfills $ \partial \wTemp / \partial t = \alpha\Laplace \wTemp +f $ and $ \gamma \wTemp = \partial \wTemp / \partial \nu $.
+\begin{eqnarray} \label{wIBVP}
+\frac{\partial \wTemp }{\partial t } &=& \alpha\Laplace \wTemp + f , \text{ in } \Omega , \\
+\wTemp (x,y,0 ) & = & \Temp_0(x,y) - \Temp_b \label{wIC} , \\
+\gamma \wTemp + \frac{\partial \wTemp }{\partial \nu } &=& 0 \text{ on } \partial \Omega  \label{wBC} .
+\end{eqnarray}
+
+The following techniques are from \cite[p. 44f]{meinhold1990pdg}.
+One solution method involves eigenvalues eigenfunctions of the Laplace operator, i.e. solutions $(\lambda_n, \Phi_n )$ of $ -\Laplace \Phi = \lambda \Phi $ with initial and boundary conditions as in (\ref{wIC}) and (\ref{wBC}). Since $ - \Laplace $ is a self-adjoint and non-negative differential operator eigenfunctions to different eigenvalues are orthogonal. Furthermore, since the spectrum of $ -\Laplace $ on a bounded domain is countable, the system of eigenfunctions in dense in $W^{1,2} (\Omega ) $ as well as in $ L^2 (\Omega ) $. Now we use a product ansatz $ \wTemp (x,y, t) = \Theta (t) \cdot \Psi (x,y) $ for $ \wTemp $. Inserting this product ansatz into $ \partial / \partial t - \alpha \Laplace $ we get
+\begin{equation*}
+\frac{\partial \wTemp }{\partial t} - \alpha \Laplace\wTemp = \Theta'(t) \Psi (x,y) -\alpha \Theta (t) \Laplace  \Psi(x,y) .
+\end{equation*}
+For a moment we assume that $ \wTemp $ fulfills the homogeneous equation, the there is
+\begin{equation*}
+\frac{\Theta'(t)}{\Theta (t)}  -\alpha  \frac{\Laplace  \Psi(x,y)}{\Psi (x,y)} = 0,
+\end{equation*} 
+which can be fulfilled, only if $ \Theta'(t) / \Theta (t) $ and $ \Laplace  \Psi(x,y) / \Psi (x,y) $ are constants. This leads to two eigenvalue problems
+\begin{eqnarray} \label{eigVal}
+\Theta' & = & \lambda \Theta ,\\
+\alpha \Laplace  \Psi & = & \lambda \Psi .
+\end{eqnarray}
+Classical Fourier techniques now lead to $ \Psi = \sum_{n \in \mathbbm{N}} (\Psi, \Phi_n ) \Phi_n $ with an orthonormal basis $\{ \Phi_n\}_{n \in \mathbbm{N}} $. Since $ \Omega = (0,1)\times (0,1) $ is rectangular we use a product ansatz for $ \Phi_n $. That requires first a rewriting $ \Psi = \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}}(\Psi, \phi_{m,n}) \phi_{m,n} $ to write $ \phi_{m,n} (x,y) = \phi_m (x) \phi_n (y) $. Then there is
+\begin{eqnarray*}
+-\Laplace \phi_m (x) \phi_n (y) & = & \lambda_{m,n} \phi_m (x) \phi_n (y) \\
+\lambda_{m,n} \phi_m (x) \phi_n (y) & = & -\left( \phi''_m (x) \phi_n (y) + \phi_m (x) \phi''_n (y) \right) .
+\end{eqnarray*}
+That is 
+\begin{equation*}
+\lambda_{m,n} = \frac{\phi''_m (x) }{\phi_m (x)} + \frac{\phi''_n (y) }{\phi_n (y)},
+\end{equation*}
+which is fulfilled, only if
+\begin{equation*}
+\lambda_{m} = \frac{\phi''_m (x) }{\phi_m (x)} \text{ and } \mu_n =  \frac{\phi''_n (y) }{\phi_n (y)}
+\end{equation*}
+holds. With this approach there is
+\begin{eqnarray*}
+\Psi (x,y) & = & \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}}(\Psi, \phi_{m,n}) \phi_{m,n} (x,y) , \\
+& = & \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}} \int_\Omega \Psi \phi_m  \phi_n  \mathrm{d}\volMeas \cdot \phi_m (x)  \phi_n (y)  , \\
+& = & \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}} \int_0^1 \int_0^1 \Psi (\xi ,\eta) \phi_m (\xi )  \phi_n (\eta ) \mathrm{d}\xi \mathrm{d}\eta \cdot \phi_m (x) \phi_n (y) .
+\end{eqnarray*}
+
+These are two Sturm-Liouville operators, cf. \cite[p. 285]{walter2000ode}.
+\begin{equation*}
+\frac{\partial \wTemp }{\partial t} - \alpha \Laplace\wTemp = \Theta'(t) \Psi (x,y) -\alpha \Theta (t) \Laplace  \Psi(x,y) .
+\end{equation*}
+With this approach the latter of (\ref{eigVal}) turns into
+\begin{eqnarray}
+\alpha \Laplace  \Psi & = & \alpha  \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}}(\Psi, \phi_{m,n})  \phi''_m (x) \phi_n (y) + \phi_m (x) \phi''_n (y) \\ 
+& = & \alpha \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}}(\Psi, \phi_{m,n}) (\lambda_m + \mu_n)  \phi_m (x) \phi_n (y) .
+\end{eqnarray}
 
 \section{Finite Difference Method}
 The ideas of finite difference method is to approximate spatial derivatives by numerical difference quotients. Evaluating a difference quotients at a certain point $(x,y)$ requires its neighboring points $(x-\Delta x,y)$, $(x+\Delta x,y)$, $(x,y-\Delta y)$ and $(x,y+\Delta y)$. For this purpose a set of grid points $\{ (x_i, y_j) \| (i,j) \in I\} $ in $\Omega $. Since $\Omega = ( 0,1 ) \times ( 0,1 ) $ the grid points $\{ (x_i, y_j) $ are aligned with the coordinate axes.
@@ -415,9 +625,142 @@ In case 1 the domain $\Omega$ is constantly heated over time where the heat cann
 \end{itemize}
 In this case the latter approach is used by imposing a Robin boundary condition, i.e.
 \begin{equation*}
-a\cdot(u-u_0 ) + b\frac{\partial u}{\partial \nu_{\partial \Omega}} = 0,
+a\cdot(\uTemp-\uTemp_0 ) + b\frac{\partial u}{\partial \nu_{\partial \Omega}} = 0,
 \end{equation*}
-where $  \nu_{\partial \Omega} $ is the outer unit normal at the boundary $\partial \Omega $, $u_0 $ the ambient temperature far from the domain $\Omega $ and its boundary $\partial \Omega $, i.e. far from the thermal boundary layer.
+where $  \nu_{\partial \Omega} $ is the outer unit normal at the boundary $\partial \Omega $, $\uTemp_0 $ the ambient temperature far from the domain $\Omega $ and its boundary $\partial \Omega $, i.e. far from the thermal boundary layer. The following theorem assures that the solution $\uTemp $ of the heat equation with Robin boundary conditions will tend to a finite equlibrium state if appropriate conditions are fulfilled.
+
+\begin{lemma}[Positiveness] \label{positiveness}
+Given the Robin boundary condition
+% \begin{equation*}
+% h\cdot ( \uTemp - \uTemp_0 ) + \frac{\partial \uTemp}{\partial \nu_{\partial \Omega }} = 0 ,
+% \end{equation*}
+% one obtains
+\begin{equation*}
+h w + \frac{\partial w}{\partial \nu_{\partial \Omega }} = 0 .
+\end{equation*}
+% provided $ w = \uTemp -\uTemp_0 $.
+Assume $ \Omega $ is the unit square, i.e. $ \Omega = (0,1)\times (0,1 )$, and $ \uTemp (0) \geq \uTemp_0 $ and $ f \geq 0 $ in $ \Omega $. (no heat sinks in $\Omega $).
+Then $ w\geq 0 $ on $ \partial \Omega $ holds.
+\end{lemma}
+
+\begin{proof}
+The boundary conditions read as
+\begin{equation*}
+h w + \frac{\partial w}{\partial \nu_{\partial \Omega }} = 
+\begin{cases}
+h w - \frac{\partial w}{\partial x} & \text{ on left boundary where $ x= 0 $, }\\
+h w - \frac{\partial w}{\partial y} & \text{ on lower boundary where $ y= 0 $, }\\
+h w + \frac{\partial w}{\partial x} & \text{ on right boundary where $ x= 1 $, }\\
+h w + \frac{\partial w}{\partial y} & \text{ on upper boundary where $ y= 1 $, }
+\end{cases}
+\end{equation*}
+which leads to the following solutions
+\begin{equation*}
+w(x ,y)  = 
+\begin{cases}
+C_1(y) \mathrm{exp}(h\cdot x) & \text{ on left boundary where $ x= 0 $, }\\
+C_2(x) \mathrm{exp}(h\cdot y) & \text{ on lower boundary where $ y= 0 $, }\\
+C_3(y) \mathrm{exp}(-h\cdot x) & \text{ on right boundary where $ x= 1 $, }\\
+C_4(x) \mathrm{exp}(-h\cdot y) & \text{ on upper boundary where $ y= 1 $. }
+\end{cases}
+\end{equation*}
+Since $ \uTemp (0) \geq \uTemp_0 $ and $ f \geq 0 $ in $ \Omega $ only non-negative functions $C_1 $, $C_2 $, $C_3 $ and $C_4 $ are logically possible. Then $w $ is non-negative n the boundary $ \partial \Omega $.
+\end{proof}
+
+\begin{theorem}[Asymptotic long-term behavior of the solution]
+What is to prove??
+\end{theorem}
+
+\begin{proof}
+We choose $ w = \uTemp -\uTemp_0 $ to get 
+\begin{equation*}
+\int_0^t \int_\Omega \psi w \frac{\partial w}{\partial t} \mathrm{d}\volMeas \mathrm{d}t = \alpha \int_0^t \int_\Omega \psi w \Delta w \mathrm{d}\volMeas \mathrm{d}t + \int_0^t \int_\Omega \psi w f \mathrm{d}\volMeas \mathrm{d}t ,
+\end{equation*}
+% where $ \psi = \psi (t) = \mathrm{exp}(\lambda (t_0 -t ))$. The integral on the left hand side gives
+where $ \psi = \psi (t) = \mathrm{d} \Psi (t)/ \mathrm{d}t $. The integral on the left hand side gives
+\begin{eqnarray*}
+\int_0^t \int_\Omega \psi w \frac{\partial w}{\partial t} \mathrm{d}\volMeas \mathrm{d}t & = & \frac{1}{2}\int_0^t \int_\Omega \psi \frac{\partial }{\partial t} \left(w^2 \right) \mathrm{d}\volMeas \mathrm{d}t \\
+& = & \frac{\psi (t)}{2}\int_\Omega w^2 (t) \mathrm{d}\volMeas - \frac{\psi (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas \\
+& - & \frac{1}{2}\int_0^t\frac{\mathrm{d} \psi }{\mathrm{d} t}\int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t ,
+\end{eqnarray*}
+where the first integral on the right hand side evaluates to
+\begin{eqnarray*}
+\int_0^t \int_\Omega \psi w \Delta w \mathrm{d}\volMeas \mathrm{d}t & = & \int_0^t \psi \int_{\partial \Omega } w \frac{\partial w}{\partial \nu_{\partial \Omega }} \mathrm{d}\surfMeas \mathrm{d}t -\int_0^t \psi \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t \\
+& = & - h \int_0^t \psi \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t -\int_0^t \psi \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t .
+\end{eqnarray*}
+Finally, the second integral on the right hand side:
+\begin{eqnarray*}
+\int_0^t \int_\Omega \psi w f \mathrm{d}\volMeas \mathrm{d}t & = & \Psi (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas - \Psi (0)\int_\Omega  w (0) f  \mathrm{d}\volMeas - \int_0^t \Psi \int_\Omega \frac{\partial w}{\partial t} f \mathrm{d}\volMeas \mathrm{d}t \\
+& = & \Psi (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas - \Psi (0)\int_\Omega  w (0) f  \mathrm{d}\volMeas - \int_0^t \Psi \int_\Omega f \cdot\left( \Delta w + f \right) \mathrm{d}\volMeas \mathrm{d}t \\
+& = & \Psi (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas - \Psi (0)\int_\Omega  w (0) f  \mathrm{d}\volMeas \\ 
+& + & \int_0^t \Psi \int_\Omega \nabla f \cdot \nabla w \mathrm{d}\volMeas \mathrm{d}t - \int_0^t \Psi \int_{\partial \Omega } f \frac{\partial w}{\partial \nu_{\partial \Omega }} \mathrm{d}\surfMeas \mathrm{d}t - \int_0^t \Psi \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t \\
+& = & \Psi (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas - \Psi (0)\int_\Omega  w (0) f  \mathrm{d}\volMeas \\ 
+& + & \int_0^t \Psi \int_\Omega \nabla f \cdot \nabla w \mathrm{d}\volMeas \mathrm{d}t + h \int_0^t \Psi \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t - \int_0^t\Psi \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
+\end{eqnarray*}
+For $ \Psi = \Psi (t) $ we just assume
+\begin{eqnarray*}
+\Psi ( t ) & < & 0,\\
+\Psi' ( t ) = \frac{\mathrm{d}\Psi (t) }{\mathrm{d}t} & > & 0,\\
+\Psi'' ( t ) = \frac{\mathrm{d^2}\Psi (t) }{\mathrm{d}t^2} & < & 0.
+\end{eqnarray*}
+Then we have
+\begin{eqnarray*}
+& & \frac{|\Psi' ( t )|}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t|\Psi'' ( t )| \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t + \alpha \int_0^t |\Psi' ( t )| \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t  \\ 
+& + & \alpha h \int_0^t |\Psi' ( t )| \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t + |\Psi ( t )| \int_\Omega  w (t) f  \mathrm{d}\volMeas  \\
+& = & \frac{|\Psi' ( 0 )|}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + |\Psi ( 0)| \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
+& + & h \int_0^t |\Psi ( t )| \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t|\Psi ( t )| \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
+\end{eqnarray*}
+We choose $ \Psi = \Psi (t) = - \mathrm{exp}(\lambda (t_0 -t ))$ with $\lambda > 0$  to get
+\begin{eqnarray*}
+\psi ( t ) & = & \frac{\mathrm{d}\Psi (t) }{\mathrm{d}t} = -\lambda\cdot \Psi (t) = \lambda\cdot \mathrm{exp}(\lambda (t_0 -t )) > 0,\\
+\frac{\mathrm{d}\psi (t) }{\mathrm{d}t} & = & \frac{\mathrm{d}^2\Psi (t) }{\mathrm{d}t^2} = \lambda^2 \cdot \Psi (t) = -\lambda^2\cdot\mathrm{exp}(\lambda (t_0 -t )) < 0 .
+\end{eqnarray*}
+With $\eta = -\Psi > 0 $ we then have
+\begin{eqnarray*}
+& & \frac{\lambda \eta (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t\lambda^2 \eta \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t + \alpha \int_0^t \lambda \eta \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t  \\ 
+& + & \alpha h \int_0^t \lambda\eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t + \eta (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas + h \int_0^t \eta \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t \\
+& = & \frac{\lambda \eta (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + \eta (0) \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
+& + & h \int_0^t \eta \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t\eta \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
+\end{eqnarray*}
+using Lemma \ref{positiveness} we have
+\begin{eqnarray} \label{estimate10}
+& & \frac{\lambda \eta (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t\lambda^2 \eta \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t \\
+& + &\alpha \int_0^t \lambda \eta \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t + \alpha h \int_0^t \lambda\eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t \\
+& \leq & \frac{\lambda \eta (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + \eta (0) \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
+& + & h \int_0^t \eta \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t\eta \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
+\end{eqnarray}
+The boundary integral on the right hand side of the last inequality can be transformed as follows
+\begin{eqnarray*}
+\int_0^t \eta \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t & = & \int_0^t \eta \int_{\partial \Omega } \frac{f}{\sqrt{\theta }}\cdot \sqrt{\theta } w \mathrm{d}\surfMeas  \mathrm{d}t \\
+& \leq & \frac{\theta }{2} \int_0^t \eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas  \mathrm{d}t + \frac{1}{2\theta } \int_0^t \eta \int_{\partial \Omega } f^2 \mathrm{d}\surfMeas  \mathrm{d}t .
+\end{eqnarray*}
+Choosing $ \theta < 2\alpha \lambda  $ it is possible to rewrite (\ref{estimate10}) as 
+\begin{eqnarray*} \label{estimate10}
+& & \frac{\lambda \eta (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t\lambda^2 \eta \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t \\
+& + &\alpha \int_0^t \lambda \eta \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t + \frac{h}{2 } \left( 2\alpha \lambda - \theta \right)  \int_0^t \eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t \\
+& \leq & \frac{\lambda \eta (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + \eta (0) \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
+& + & \frac{h}{2\theta } \int_0^t \eta \int_{\partial \Omega } f^2 \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t\eta \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
+\end{eqnarray*}
+All terms on the right hand side do not depend on $t$ so there exists a constant $C>0 $ such that
+\begin{equation*}
+\frac{\lambda \eta (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + \eta (0) \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
+ + \frac{h}{2\theta } \int_0^t \eta \int_{\partial \Omega } f^2 \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t\eta \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t \leq C,
+\end{equation*}
+and finally
+\begin{equation*}
+\frac{\lambda \eta (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t\lambda^2 \eta \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t \\
++\alpha \int_0^t \lambda \eta \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t + \frac{h}{2 } \left( 2\alpha \lambda - \theta \right)  \int_0^t \eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t \leq C.
+\end{equation*}
+\end{proof}
+
+\begin{remark}[Limitations of the estimate]
+In the last estimate every term on the left hand side has $ \psi (t) $ as factor. Especially the terms
+\begin{equation*}
+\frac{\psi (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas, \text{ and } \frac{\psi (t)}{\lambda }\int_\Omega  w (t) f  \mathrm{d}\volMeas
+\end{equation*}
+will become infinitely small if $t$ grows beyond all limits. That means these two terms do not allow for an asymptotic estimate in $t$.
+\end{remark}
+
 With the choice $u_0 = 25\,^{\circ}\mathrm{C} $, $a=1/2 $ and $ b=1 $ we redo the simulation of case 1 where all other parameters are left unchanged.
 \begin{table}[h!] 
 \centering
@@ -446,8 +789,8 @@ Spatial Average of the calculated Temperatures\\
 \includegraphics[width=0.8\textwidth]{case2_charts/Compi.png} \\
 \bottomrule
 \end{tabular}}
-\caption{Temperature averages for explicit and PINN solver..}
-\label{AverageTempeatures1}
+\caption{Temperature averages for explicit and PINN solver.}
+\label{AverageTempeatures2}
 \end{table}
 
 \begin{table}
@@ -462,7 +805,37 @@ Explicit Solver& PINN\\
 \includegraphics[width=0.5\textwidth]{case2_charts/Explicit/Frame50.png} & \includegraphics[width=0.5\textwidth]{case2_charts/PINN/Frame50.png}\\
 \bottomrule
 \end{tabular}}
-\caption{Solution to difeerent time frames.}
+\caption{Solution to different time frames.}
+\label{SolutionsTimeframes1}
+\end{table}
+
+These solutions can be extended to t = 6 s. Then we get
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{c}
+\toprule
+Spatial Average of the calculated Temperatures\\
+\midrule
+\includegraphics[width=0.8\textwidth]{case3_charts/Compi.png} \\
+\bottomrule
+\end{tabular}}
+\caption{Temperature averages for explicit and PINN solver.}
+\label{AverageTempeatures3}
+\end{table}
+which promises convergence if t tends to infinity. The final frame at t = 6 s can be seen in the following heatmaps
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cc}
+\toprule
+Explicit Solver& PINN\\
+\midrule
+\includegraphics[width=0.5\textwidth]{case3_charts/Explicit/Frame30.png} & \includegraphics[width=0.5\textwidth]{case3_charts/PINN/Frame30.png}\\
+\includegraphics[width=0.5\textwidth]{case3_charts/Explicit/Frame50.png} & \includegraphics[width=0.5\textwidth]{case3_charts/PINN/Frame50.png}\\
+\bottomrule
+\end{tabular}}
+\caption{Solution to different time frames.}
 \label{SolutionsTimeframes1}
 \end{table}
 
@@ -470,8 +843,11 @@ Explicit Solver& PINN\\
 
 % \section{Appendix A Trained Models}
 \newpage
-\thispagestyle{empty} % entfernt Kopf-/Fußzeilen
-\null % „unsichtbarer“ Inhalt, damit die Seite existiert
+\thispagestyle{empty}
+\null
+\newpage
+\thispagestyle{empty}
+\null
 \newpage
 \newpage
 \begin{thebibliography}{9}
@@ -485,6 +861,16 @@ C.~Eck, H.~Garcke, and P.~Knabner,
 K.-H. Hoffmann and G. Witterstein, 
 \emph{Mathematische Modellierung: Grundprinzipien in Natur- und Ingenieurwissenschaften}, 
 Mathematik Kompakt, 1st ed. (corrected reprint), Birkhäuser, Basel, 2014.
+
+\bibitem{meinhold1990pdg}
+P. Meinhold and W. Wagner, 
+\emph{Partielle Differentialgleichungen}, 
+BSB B. G. Teubner Verlagsgesellschaft, Leipzig, 1990.
+
+\bibitem{walter2000ode}
+W. Walter, 
+\emph{Gewöhnliche Differentialgleichungen}, 
+7. ed., Springer-Verlag Berlin Heidelberg, 2000.
 
 \bibitem{Ernst2015}
 O. Ernst,
