@@ -413,67 +413,26 @@ We are now able to define Green's function as
 \begin{equation}
 \Green (x,y,x',y',\tau ) = H(\tau ) \sum_{m,n \in I \times I } \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot \mathrm{exp} (-\alpha \phi_{m,n} \tau ),
 \end{equation}
-where $H$ is the Heaviside function which is one for $\tau > 0 $ and zero otherwise. With the help of this function a solution $ \wTemp $ can be constructed as
+where $H$ is the Heaviside function which is one for $\tau > 0 $ and zero otherwise. With the help of this function a solution $ \wTemp $ of (\ref{homogenHeatC}, \ref{homogenIC}, \ref{homogenBC}) can be constructed as
 \begin{equation}
-\wTemp (x,y,t)  = \int_0^1 \int_0^1  \Green (x,y,x',y', 0 ) \wTemp_0 (x',y') \mathrm{d}x' \mathrm{d}y' + \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t'
-\end{equation}
+\wTemp (x,y,t)  = \int_0^1 \int_0^1  \Green (x,y,x',y', t ) \wTemp_0 (x',y') \mathrm{d}x' \mathrm{d}y' .
+\end{equation} \label{GreenForHomogenHeatC}
+Since $ \Laplace \Green = \delta $ in the sense of distributions adding a term $ \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t' $ to (\ref{GreenForHomogenHeatC}) allows (\ref{homogenHeatC}) to be extended by the function $f$. A solution $\wTemp$ of this inhomogenized problem is then given by
+\begin{eqnarray} \label{GreenForPartiallyInhomogenHeatC}
+\wTemp (x,y,t)  & = & \int_0^1 \int_0^1  \Green (x,y,x',y', t ) \wTemp_0 (x',y') \mathrm{d}x' \mathrm{d}y' \\
+& + & \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t' .
+\end{eqnarray}
 
-\begin{equation}
-\Temp (x,y,t)  = \int_0^1 \int_0^1  \Green (x,y,x',y', 0 ) \Temp_0 (x',y') \mathrm{d}x' \mathrm{d}y' + \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t'
-\end{equation}
+\subsection{The inhomogeneous Heat Conduction Problem}
+The full inhomogenous heat conduction problem is given by
+\begin{eqnarray} \label{inhomogenHeatC}
+\frac{\partial \uTemp }{\partial t } &=& \alpha\Laplace \uTemp + f , \text{ in } \Omega , \\
+\uTemp (x,y,0 ) & = & \uTemp_0(x,y) \label{inhomogenIC} , \\
+\gamma ( \uTemp - \uTemp_{\mathrm{amb}} ) + \frac{\partial \uTemp }{\partial \nu } &=& 0 \text{ on } \partial \Omega  \label{inhomogenBC} .
+\end{eqnarray}
+We assume $ \uTemp_{\mathrm{amb}} $ is a constant. With $ \wTemp = \uTemp - \uTemp_{\mathrm{amb}} $ and $ \wTemp_0 = \uTemp_0 - \uTemp_{\mathrm{amb}} $ a solution of the problem $ \partial \wTemp / \partial t = \alpha \Laplace \wTemp + f $ and the conditions (\ref{homogenIC}, \ref{homogenBC}) can be constructed via (\ref{GreenForPartiallyInhomogenHeatC}). Vise versa, a solution of the inhomogeneous problem (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}) can be defined via $ \uTemp = \wTemp + \uTemp_{\mathrm{amb}} $ where $ \wTemp $ is constructed by (\ref{GreenForPartiallyInhomogenHeatC}) again.
 %
 %
-\subsection{The OLD}
-We now are going to transform the problem by $ \wTemp = \Temp - \Temp_b $, $\wTemp_0 = \Temp_0 - \Temp_b $. Then $ \wTemp $ fulfills $ \partial \wTemp / \partial t = \alpha\Laplace \wTemp +f $ and $ \gamma \wTemp = \partial \wTemp / \partial \nu $.
-\begin{eqnarray} \label{wIBVP}
-\frac{\partial \wTemp }{\partial t } &=& \alpha\Laplace \wTemp + f , \text{ in } \Omega , \\
-\wTemp (x,y,0 ) & = & \Temp_0(x,y) - \Temp_b \label{wIC} , \\
-\gamma \wTemp + \frac{\partial \wTemp }{\partial \nu } &=& 0 \text{ on } \partial \Omega  \label{wBC} .
-\end{eqnarray}
-
-The following techniques are from \cite[p. 44f]{meinhold1990pdg}.
-One solution method involves eigenvalues eigenfunctions of the Laplace operator, i.e. solutions $(\lambda_n, \Phi_n )$ of $ -\Laplace \Phi = \lambda \Phi $ with initial and boundary conditions as in (\ref{wIC}) and (\ref{wBC}). Since $ - \Laplace $ is a self-adjoint and non-negative differential operator eigenfunctions to different eigenvalues are orthogonal. Furthermore, since the spectrum of $ -\Laplace $ on a bounded domain is countable, the system of eigenfunctions in dense in $W^{1,2} (\Omega ) $ as well as in $ L^2 (\Omega ) $. Now we use a product ansatz $ \wTemp (x,y, t) = \Theta (t) \cdot \Psi (x,y) $ for $ \wTemp $. Inserting this product ansatz into $ \partial / \partial t - \alpha \Laplace $ we get
-\begin{equation*}
-\frac{\partial \wTemp }{\partial t} - \alpha \Laplace\wTemp = \Theta'(t) \Psi (x,y) -\alpha \Theta (t) \Laplace  \Psi(x,y) .
-\end{equation*}
-For a moment we assume that $ \wTemp $ fulfills the homogeneous equation, the there is
-\begin{equation*}
-\frac{\Theta'(t)}{\Theta (t)}  -\alpha  \frac{\Laplace  \Psi(x,y)}{\Psi (x,y)} = 0,
-\end{equation*} 
-which can be fulfilled, only if $ \Theta'(t) / \Theta (t) $ and $ \Laplace  \Psi(x,y) / \Psi (x,y) $ are constants. This leads to two eigenvalue problems
-\begin{eqnarray} \label{eigVal}
-\Theta' & = & \lambda \Theta ,\\
-\alpha \Laplace  \Psi & = & \lambda \Psi .
-\end{eqnarray}
-Classical Fourier techniques now lead to $ \Psi = \sum_{n \in \mathbbm{N}} (\Psi, \Phi_n ) \Phi_n $ with an orthonormal basis $\{ \Phi_n\}_{n \in \mathbbm{N}} $. Since $ \Omega = (0,1)\times (0,1) $ is rectangular we use a product ansatz for $ \Phi_n $. That requires first a rewriting $ \Psi = \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}}(\Psi, \phi_{m,n}) \phi_{m,n} $ to write $ \phi_{m,n} (x,y) = \phi_m (x) \phi_n (y) $. Then there is
-\begin{eqnarray*}
--\Laplace \phi_m (x) \phi_n (y) & = & \lambda_{m,n} \phi_m (x) \phi_n (y) \\
-\lambda_{m,n} \phi_m (x) \phi_n (y) & = & -\left( \phi''_m (x) \phi_n (y) + \phi_m (x) \phi''_n (y) \right) .
-\end{eqnarray*}
-That is 
-\begin{equation*}
-\lambda_{m,n} = \frac{\phi''_m (x) }{\phi_m (x)} + \frac{\phi''_n (y) }{\phi_n (y)},
-\end{equation*}
-which is fulfilled, only if
-\begin{equation*}
-\lambda_{m} = \frac{\phi''_m (x) }{\phi_m (x)} \text{ and } \mu_n =  \frac{\phi''_n (y) }{\phi_n (y)}
-\end{equation*}
-holds. With this approach there is
-\begin{eqnarray*}
-\Psi (x,y) & = & \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}}(\Psi, \phi_{m,n}) \phi_{m,n} (x,y) , \\
-& = & \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}} \int_\Omega \Psi \phi_m  \phi_n  \mathrm{d}\volMeas \cdot \phi_m (x)  \phi_n (y)  , \\
-& = & \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}} \int_0^1 \int_0^1 \Psi (\xi ,\eta) \phi_m (\xi )  \phi_n (\eta ) \mathrm{d}\xi \mathrm{d}\eta \cdot \phi_m (x) \phi_n (y) .
-\end{eqnarray*}
-
-These are two Sturm-Liouville operators, cf. \cite[p. 285]{walter2000ode}.
-\begin{equation*}
-\frac{\partial \wTemp }{\partial t} - \alpha \Laplace\wTemp = \Theta'(t) \Psi (x,y) -\alpha \Theta (t) \Laplace  \Psi(x,y) .
-\end{equation*}
-With this approach the latter of (\ref{eigVal}) turns into
-\begin{eqnarray}
-\alpha \Laplace  \Psi & = & \alpha  \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}}(\Psi, \phi_{m,n})  \phi''_m (x) \phi_n (y) + \phi_m (x) \phi''_n (y) \\ 
-& = & \alpha \sum_{m \in \mathbbm{N}, n \in \mathbbm{N}}(\Psi, \phi_{m,n}) (\lambda_m + \mu_n)  \phi_m (x) \phi_n (y) .
-\end{eqnarray}
 
 \section{Finite Difference Method}
 The ideas of finite difference method is to approximate spatial derivatives by numerical difference quotients. Evaluating a difference quotients at a certain point $(x,y)$ requires its neighboring points $(x-\Delta x,y)$, $(x+\Delta x,y)$, $(x,y-\Delta y)$ and $(x,y+\Delta y)$. For this purpose a set of grid points $\{ (x_i, y_j) \| (i,j) \in I\} $ in $\Omega $. Since $\Omega = ( 0,1 ) \times ( 0,1 ) $ the grid points $\{ (x_i, y_j) $ are aligned with the coordinate axes.
