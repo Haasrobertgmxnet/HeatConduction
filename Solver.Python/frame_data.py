@@ -9,3 +9,4 @@ class FrameData:
 
 # frame1 = FrameData(1.0, 1.0, 3.5, 60, 60, 14400)
 frame1 = FrameData(1.0, 1.0, 60.0, 60, 60, 288000)
+frame2 = FrameData(1.0, 1.0, 60.0, 30, 30, 288000)

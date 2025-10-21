@@ -13,6 +13,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HeatEquationPINN.Cpp", "Hea
 EndProject
 Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Solver.Python", "Solver.Python\Solver.Python.pyproj", "{D53B4EA1-0128-4F42-A004-DB9966B95E83}"
 EndProject
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "PythonTest", "PythonTest\PythonTest.pyproj", "{B0A2FEC9-4259-46AB-8E74-10FA2486E4A5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -45,6 +47,10 @@ Global
 		{D53B4EA1-0128-4F42-A004-DB9966B95E83}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{D53B4EA1-0128-4F42-A004-DB9966B95E83}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D53B4EA1-0128-4F42-A004-DB9966B95E83}.Release|x64.ActiveCfg = Release|Any CPU
+		{B0A2FEC9-4259-46AB-8E74-10FA2486E4A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B0A2FEC9-4259-46AB-8E74-10FA2486E4A5}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B0A2FEC9-4259-46AB-8E74-10FA2486E4A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B0A2FEC9-4259-46AB-8E74-10FA2486E4A5}.Release|x64.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

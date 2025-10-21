@@ -138,8 +138,8 @@ def main() -> None:
 
     n_frames = 20
     start = time.time()
-    u_frames_green, u_means_green = GreenFunctionSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
-    u_frames_explicit, u_means_explicit = HeatExplicitSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
+    # u_frames_green, u_means_green = GreenFunctionSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
+    # u_frames_explicit, u_means_explicit = HeatExplicitSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
     u_frames_crank_nicolson, u_means_crank_nicolson = HeatCrankNicolsonSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
     
     u_frames_pinn, u_means_pinn = HeatPINNSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)

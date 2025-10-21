@@ -77,16 +77,25 @@ def anim_slide(u_frames, lx, ly, title, cmap ='hot', isolines = False):
         cax.set_data(results[frame])
         ax.set_title(f"{title}, Frame = {frame}")
 
-        # --- Konturen updaten ---
         if isolines:
-            # alte Konturen entfernen
-            for c in contours.collections:
-                c.remove()
+            # Alte Konturen entfernen (robust für alle Matplotlib-Versionen)
+            if contours is not None:
+                # Lösche alle LineCollection-Objekte, die auf den Achsen sind
+                for artist in contours.collections if hasattr(contours, 'collections') else []:
+                    artist.remove()
+                # Falls contours.collections nicht existiert, lösche einfach alle LineCollections auf den Achsen
+                if not hasattr(contours, 'collections'):
+                    for artist in ax.collections:
+                        artist.remove()
+                contours = None
 
-            # neue Konturen zeichnen
-            new_contours = ax.contour(X, Y, results[frame], levels=10, colors=isol_color)
-            contours = new_contours
+            # Neue Konturen zeichnen
+            contours = ax.contour(X, Y, results[frame], levels=10, colors=isol_color)
+
         fig.canvas.draw_idle()
+
+
+
 
     slider.on_changed(update_slider)
 

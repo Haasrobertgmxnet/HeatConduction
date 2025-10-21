@@ -26,71 +26,17 @@ def dbg_matrix_checks(solver):
     except Exception as e:
         print("spsolve Test fehlgeschlagen:", type(e), e)
 
-def build_D1_(N, h, alpha_left, beta_left, g_left,
-             alpha_right, beta_right, g_right):
-    # Zahl der Punkte:
-    npts = N + 1
-    # Diagonalen für innere Punkte:
-    main = np.zeros(npts)
-    off  = np.zeros(npts-1)
-
-    # Innenpunkte: Standardstencil
-    main[1:-1] = -2.0 / h**2
-    off[:] = 1.0 / h**2
-
-    # Linker Rand (i=0): Robin
-    if beta_left != 0:  # allgemeines Robin/Neumann
-        main[0] = -2.0 / h**2 + 2.0 * alpha_left / (beta_left * h)
-        off[0]  = 2.0 / h**2
-        q_left = -2.0 / (beta_left * h) * g_left
-    else:  # Dirichlet
-        main[0] = 1.0
-        off[0]  = 0.0
-        q_left = g_left / alpha_left  # u(0)=g/alpha
-    # Rechter Rand (i=N): Robin
-    if beta_right != 0:
-        main[-1] = -2.0 / h**2 + 2.0 * alpha_right / (beta_right * h)
-        off[-1]  = 2.0 / h**2
-        q_right = -2.0 / (beta_right * h) * g_right
-    else:  # Dirichlet
-        main[-1] = 1.0
-        off[-1]  = 0.0
-        q_right = g_right / alpha_right
-
-    # Sparseband-Matrix
-    D = sp.diags(
-        diagonals=[off, main, off],
-        offsets=[-1, 0, 1],
-        shape=(npts, npts),
-        format='csr'
-    )
-
-    # RHS-Vektor (q) für Randkorrekturen:
-    q = np.zeros(npts)
-    if beta_left != 0:
-        q[0] = q_left
-    else:
-        # Dirichlet: u(0)=const, wir setzen Zeile=Identität, RHS=g/alpha
-        q[0] = q_left
-    if beta_right != 0:
-        q[-1] = q_right
-    else:
-        q[-1] = q_right
-
-    return D, q
-
-import numpy as np
-import scipy.sparse as sp
-
 def build_D1(N, h, alpha_left, beta_left, g_left,
              alpha_right, beta_right, g_right):
+    beta_left = -beta_left
+
     npts = N + 1
     main = np.zeros(npts, dtype=np.float64)
-    off  = np.zeros(npts-1, dtype=np.float64)
+    off1  = off2 = np.zeros(npts-1, dtype=np.float64)
 
     # Innenpunkte (i=1..N-1)
     main[1:-1] = -2.0 / h**2
-    off[:] = 1.0 / h**2
+    off1[1:-1] = off2[1:-1] = 1.0 / h**2
 
     q = np.zeros(npts, dtype=np.float64)
 
@@ -101,41 +47,30 @@ def build_D1(N, h, alpha_left, beta_left, g_left,
         if abs(alpha_left) < tiny:
             raise ValueError("Ungültige linke BC: alpha_left und beta_left beide ~0")
         main[0] = 1.0
-        off[0]  = 0.0
+        off1[0] = off2[0] = 0.0
         q[0]    = g_left / alpha_left
     else:
-        # Ghost-elimination mit central derivative approx:
-        # u'(0) ≈ (u1 - u_{-1}) / (2h)
-        # Robin: alpha*u0 + beta*(u1 - u_{-1})/(2h) = g
-        # => u_{-1} = u1 - (2h/beta) * (g - alpha*u0)
-        # Insert into interior stencil (u_{-1} - 2 u0 + u1)/h^2
-        # -> coefficients:
+        # Ghost-elimination (siehe Ableitung)
         main[0] = -2.0 / h**2 + 2.0 * alpha_left / (beta_left * h)
-        off[0]  = 2.0 / h**2
-        q[0]    = 2.0 * g_left / (beta_left * h)   # korrektes Vorzeichen
+        off1[0] = main[0]
+        off2[0]  = 1.0 / h**2
+        q[0]    = -2.0 * g_left / (beta_left * h)
 
     # --- RIGHT boundary (i=N) ---
     if abs(beta_right) < tiny:  # Dirichlet at right
         if abs(alpha_right) < tiny:
             raise ValueError("Ungültige rechte BC: alpha_right und beta_right beide ~0")
         main[-1] = 1.0
-        off[-1]  = 0.0
+        off1[-1] = off2[-1] = 0.0
         q[-1]    = g_right / alpha_right
     else:
-        # Right boundary normal points outward; sign depends on convention.
-        # Using symmetric ghost-elimination:
-        # u'(L) ≈ (u_{N+1} - u_{N-1})/(2h)
-        # Robin at right: alpha*u_N + beta * u'(L) = g
-        # -> u_{N+1} = u_{N-1} + (2h/beta) * (g - alpha*u_N)
-        # interior stencil at i=N: (u_{N-1} - 2 u_N + u_{N+1})/h^2
-        # => coefficients:
         main[-1] = -2.0 / h**2 + 2.0 * alpha_right / (beta_right * h)
-        off[-1]  = 2.0 / h**2
-        q[-1]    = 2.0 * g_right / (beta_right * h)
+        off2[-1] = main[-1]
+        off1[-1]  = 1.0 / h**2
+        q[-1]    = -2.0 * g_right / (beta_right * h)
 
-    D = sp.diags([off, main, off], offsets=[-1,0,1], shape=(npts, npts), format='csr')
-    return D, q
-
+    D = sp.diags([off1, main, off2], offsets=[-1,0,1], shape=(npts, npts), format='csr')
+    return D, -q
 
 # Wir nehmen an, HeatBoundaryCondition hat .to_tuple_x()/.to_tuple_y() wie vorher
 
@@ -227,9 +162,10 @@ class HeatCrankNicolsonSolver():
                 f_vec = f
 
         # RHS (inkl. Rand-Q)
-        # rhs = self.B.dot(u_vec) + 0.5*self.dt * (f_vec + self.q_total)
-        rhs = self.B.dot(u_vec) # + 0.5*self.dt*(f_vec + f_vec)# + 0.5*self.dt*(self.q_total + self.q_total)
-        print(f"rhs max: {rhs.max()}")
+        # if f_vec is old and new
+        # rhs = self.B.dot(u_vec) + 0.5*self.dt*(f_vec + f_vec) + 0.5*self.dt*(self.q_total + self.q_total)
+        rhs = self.B.dot(u_vec) + self.dt * (f_vec + self.q_total)
+        # print(f"rhs max: {rhs.max()}")
 
         # Löse (verwende faktorisierten Solver falls vorhanden)
         if self._factor is not None:
@@ -238,9 +174,6 @@ class HeatCrankNicolsonSolver():
         else:
             u_new_vec = spla.spsolve(self.A, rhs)
 
-        print(f"u_vec max: {u_vec.max()}")
-        print(f"u_new_vec max: {u_new_vec.max()}")
-        print(f"f_vec: {f_vec}")
         if input_was_2d:
             u_new = u_new_vec.reshape((self.ny+1, self.nx+1), order='C')
             return u_new
