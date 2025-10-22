@@ -7,6 +7,16 @@ from boundary_conditions import HeatBoundaryCondition
 
 # 1) schnelle Matrix-/RHS-Checks
 def dbg_matrix_checks(solver):
+    vals = spla.eigs(solver.B, k=5, which='LM', return_eigenvectors=False)
+    print("max |λ(B)| =", np.max(np.abs(vals)))
+
+    # 1) größter reeller Eigenwert von Lh (LR = largest real part)
+    eig_Lh = spla.eigs(solver.Lh, k=1, which='LR', return_eigenvectors=False)
+    print("largest eigenvalue of Lh:", eig_Lh[0])
+
+    # 2) kleinster (most negative) Eigenwert
+    eig_Lh_min = spla.eigs(solver.Lh, k=1, which='SR', return_eigenvectors=False)
+    print("smallest eigenvalue of Lh:", eig_Lh_min[0])
     print("Lh: shape", solver.Lh.shape, "nnz", solver.Lh.nnz)
     print("A: shape", solver.A.shape, "nnz", solver.A.nnz)
     print("B: shape", solver.B.shape, "nnz", solver.B.nnz)
@@ -70,9 +80,7 @@ def build_D1(N, h, alpha_left, beta_left, g_left,
         q[-1]    = -2.0 * g_right / (beta_right * h)
 
     D = sp.diags([off1, main, off2], offsets=[-1,0,1], shape=(npts, npts), format='csr')
-    return D, -q
-
-# Wir nehmen an, HeatBoundaryCondition hat .to_tuple_x()/.to_tuple_y() wie vorher
+    return D, q
 
 # --- (build_D1, build_L_h, crank_nicolson_matrices unverändert, außer kleine Anpassungen) ---
 # Ich nehme hier an, diese Funktionen sind identisch zu Ihrer bisherigen Implementierung,
@@ -84,6 +92,7 @@ class HeatCrankNicolsonSolver():
         """
         nx, ny: Anzahl Intervalle (nicht Anzahl Punkte). Punkte sind nx+1, ny+1.
         """
+        self.mu = 0.0
         self.alpha = alpha
         self.dt = dt
         self.dx = dx
@@ -98,27 +107,13 @@ class HeatCrankNicolsonSolver():
         self.lamx = self.alpha * self.dt / dx**2
         self.lamy = self.alpha * self.dt / dy**2
         self.Lh = None
+        self._factor = None
 
         # Aufbau Matrizen
         self.build_L_h()
         self.crank_nicolson_matrices(self.alpha)
 
-        
-
-        vals = spla.eigs(self.B, k=5, which='LM', return_eigenvectors=False)
-        print("max |λ(B)| =", np.max(np.abs(vals)))
-
-        # 1) größter reeller Eigenwert von Lh (LR = largest real part)
-        eig_Lh = spla.eigs(self.Lh, k=1, which='LR', return_eigenvectors=False)
-        print("largest eigenvalue of Lh:", eig_Lh[0])
-
-        # 2) kleinster (most negative) Eigenwert
-        eig_Lh_min = spla.eigs(self.Lh, k=1, which='SR', return_eigenvectors=False)
-        print("smallest eigenvalue of Lh:", eig_Lh_min[0])
         dbg_matrix_checks(self)
-
-        # faktorisierter Solver (optional) - erst nachdem A gesetzt ist
-        self._factor = None
 
     def build_L_h(self):
         Dx, qx_left = build_D1(self.nx, self.dx, *self.robin_x)
@@ -133,11 +128,25 @@ class HeatCrankNicolsonSolver():
 
     def crank_nicolson_matrices(self, kappa):
         n = self.Lh.shape[0]
-        I = sp.identity(n)
-        self.A = (I - 0.5 * self.dt * kappa * self.Lh).tocsr()
-        self.B = (I + 0.5 * self.dt * kappa * self.Lh).tocsr()
-        # Faktorisiere A einmal (schnellere Lösung in step)
-        self._factor = spla.factorized(self.A)
+        # Use csc for SuperLU
+        I = sp.identity(n, format='csc')
+        Lh_csr = self.Lh.tocsr()
+        A = (I - (1 - self.mu) * self.dt * kappa * Lh_csr)
+        B = (I + self.mu * self.dt * kappa * Lh_csr)
+        # keep them in sparse formats you need:
+        self.A = A.tocsc()    # important: factorization likes csc
+        self.B = B.tocsr()
+
+        # Factorize once with SuperLU (fast apply later)
+        # spla.factorized expects csc/CSR (returns function calling SuperLU)
+        try:
+            fa = None
+            fa = spla.factorized(self.A) 
+            self._factor = spla.factorized(self.A)  # returns function rhs -> x
+        except Exception:
+            # fallback: precompute splu object and wrap it
+            self._splu = spla.splu(self.A)
+            self._factor = lambda rhs: self._splu.solve(rhs)
 
     def check_stability(self):
         stability_number = self.lamx + self.lamy
@@ -145,6 +154,7 @@ class HeatCrankNicolsonSolver():
 
     def step(self, u, f = None):
         # Akzeptiere sowohl 2D als auch 1D u:
+        
         input_was_2d = (u.ndim == 2)
         if input_was_2d:
             # In Ihrer Kronecker-Bauweise ist die Ordnung lexicographisch
@@ -161,19 +171,33 @@ class HeatCrankNicolsonSolver():
             else:
                 f_vec = f
 
-        # RHS (inkl. Rand-Q)
+        # print(f"self.dt: { self.dt }")
+        p0 = u_vec
+        p1 = 25.0*self.B.dot(np.ones_like(u_vec))
+        p2 = self.B.dot(u_vec)
+        p3 = self.dt * f_vec
+        p4 = self.dt * self.q_total
+
+        #for i, p in enumerate([p0, p1, p2, p3, p4], start=1):
+            #print(f"Part {i} max: {np.max(p):.6e}, mean: {np.mean(p):.6e}")
+
         # if f_vec is old and new
         # rhs = self.B.dot(u_vec) + 0.5*self.dt*(f_vec + f_vec) + 0.5*self.dt*(self.q_total + self.q_total)
         rhs = self.B.dot(u_vec) + self.dt * (f_vec + self.q_total)
+        # rhs = p0 + p3 + p4
+        #print(f"RHS MAX: {np.mean(rhs)}")
         # print(f"rhs max: {rhs.max()}")
+
+        print(f"Shape: {u_vec.shape}")
 
         # Löse (verwende faktorisierten Solver falls vorhanden)
         if self._factor is not None:
-            u_new_vec = spla.spsolve(self.A, rhs)
-            # u_new_vec = self._factor(rhs)
+            u_new_vec = self._factor(rhs)
         else:
             u_new_vec = spla.spsolve(self.A, rhs)
 
+        #print(f"Means: u old: {np.mean(u_vec)}, u new: {np.mean(u_new_vec)}")
+        #print(f"Maxs: u old: {np.max(u_vec)}, u new: {np.max(u_new_vec)}")
         if input_was_2d:
             u_new = u_new_vec.reshape((self.ny+1, self.nx+1), order='C')
             return u_new

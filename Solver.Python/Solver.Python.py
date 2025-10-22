@@ -7,6 +7,7 @@ from crank_nicolson import HeatCrankNicolsonSolver
 from pinn_solver import HeatPINNSolver
 from green_function import GreenFunctionSolver
 from frame_data import frame1
+from frame_data import frame2
 from ibvp_data import ibvp1
 from plot_tools import anim_slide, single_plot
 
@@ -138,9 +139,12 @@ def main() -> None:
 
     n_frames = 20
     start = time.time()
-    # u_frames_green, u_means_green = GreenFunctionSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
-    # u_frames_explicit, u_means_explicit = HeatExplicitSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
-    u_frames_crank_nicolson, u_means_crank_nicolson = HeatCrankNicolsonSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
+    params = [ibvp1, frame1, frame1.nt//n_frames, n_frames]
+    params2 = [ibvp1, frame2, frame2.nt//n_frames, n_frames]
+    # u_frames_crank_nicolson, u_means_crank_nicolson = HeatCrankNicolsonSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
+    u_frames_crank_nicolson, u_means_crank_nicolson = HeatCrankNicolsonSolver.pipeline(*params)
+    u_frames_green, u_means_green = GreenFunctionSolver.pipeline(*params)
+    u_frames_explicit, u_means_explicit = HeatExplicitSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
     
     u_frames_pinn, u_means_pinn = HeatPINNSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
 
@@ -151,8 +155,11 @@ def main() -> None:
 
     diffs = []
     res = []
+    # u_frames = u_frames_explicit # u_frames_crank_nicolson
+    u_frames = u_frames_crank_nicolson
+    u_means = u_means_crank_nicolson
     # Vergleich frame für frame
-    for i, (f1, f2) in enumerate(zip(u_frames_explicit, u_frames_pinn)):
+    for i, (f1, f2) in enumerate(zip(u_frames_explicit, u_frames)):
         if f1.shape != f2.shape:
             print(f"Frame {i}: unterschiedliche Shape {f1.shape} vs {f2.shape}")
             continue
@@ -167,7 +174,7 @@ def main() -> None:
 
 
     use_pinn = False
-    u_frames = u_frames_explicit # u_frames_crank_nicolson
+    
     anim_title = 'Solutions of explicit solver'
     if use_pinn:
         u_frames = u_frames_pinn
@@ -188,7 +195,7 @@ def main() -> None:
     plt.plot(u_means_green, 'r*:', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ Green function')
 
     # Vierter Plot
-    # plt.plot(u_means_crank_nicolson, 'r*:', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ Crank-Nicolson')
+    plt.plot(u_means_crank_nicolson, 'r*:', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ Crank-Nicolson')
 
     # Optional: Achsenbeschriftung, Legende usw.
     plt.xlabel('Timeframe')
