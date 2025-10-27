@@ -11,6 +11,53 @@ from frame_data import frame2
 from ibvp_data import ibvp1
 from plot_tools import anim_slide, single_plot
 
+def compute_pde_residual(u_frames, frame, alpha):
+    dx = frame.lx / (frame.nx - 1)
+    dy = frame.ly / (frame.ny - 1)
+    dt = frame.lt / frame.nt
+
+    residual_means = []
+    residuals = []
+    for n in range(1, len(u_frames)-1):
+        u_prev_ = u_frames[n-1]
+        u = u_frames[n]
+        u_next = u_frames[n+1]
+
+        # Zeitliche Ableitung (zentral)
+        try:
+            u_t = (u_next - u_prev_) / (2*dt)
+        except:
+            u_t = (u_next - u) / dt
+
+        # Räumliche zweite Ableitungen (Laplace-Operator)
+        u_xx = (np.roll(u, -1, axis=1) - 2*u + np.roll(u, 1, axis=1)) / dx**2
+        u_yy = (np.roll(u, -1, axis=0) - 2*u + np.roll(u, 1, axis=0)) / dy**2
+        laplace_u = u_xx + u_yy
+
+        R = u_t - alpha * laplace_u
+        residuals.append(R)
+        residual_means.append(np.mean(R))
+
+    return np.array(residuals), residual_means
+
+def boundary_residual(u, frame, k, h, u_amb):
+    dx = frame.lx / (frame.nx - 1)
+    dy = frame.ly / (frame.ny - 1)
+
+    # Normalen-Ableitungen an den vier Rändern
+    du_dx_left  = (u[:,1] - u[:,0]) / dx
+    du_dx_right = (u[:,-1] - u[:,-2]) / dx
+    du_dy_bottom = (u[1,:] - u[0,:]) / dy
+    du_dy_top    = (u[-1,:] - u[-2,:]) / dy
+
+    # Residuen für Robin-Bedingung
+    R_left  = -k*du_dx_left  + h*u[:,0]  - h*u_amb
+    R_right =  k*du_dx_right + h*u[:,-1] - h*u_amb
+    R_bottom = -k*du_dy_bottom + h*u[0,:] - h*u_amb
+    R_top    =  k*du_dy_top    + h*u[-1,:] - h*u_amb
+
+    return R_left, R_right, R_bottom, R_top
+
 def main() -> None:
     """
     Main execution function that compares explicit and implicit solvers for the 2D heat equation
@@ -137,15 +184,153 @@ def main() -> None:
 
     # fplot()
 
+    class case_data:
+        def __init__(self, pipeline, plotsymb = 'go--'):
+            self.pipeline = pipeline
+            self.u_frames = None
+            self.u_means = None
+            self.R_pde = None
+            self.R_pde_means = None
+            self.R_left = None
+            self.R_right = None
+            self.R_bottom = None
+            self.R_top = None
+            self.R_left_means = None
+            self.R_right_means = None
+            self.R_bottom_means = None
+            self.R_top_means = None
+            self.plotsymb = plotsymb
+
+        def get_solution(self, params):
+            self.u_frames, self.u_means = self.pipeline(*params)
+
+        def get_pde_residual(self, frame, alpha):
+            self.R_pde, self.R_pde_means = compute_pde_residual(self.u_frames, frame, alpha)
+            # print(f"self.R_pde_means: {self.R_pde_means}")
+
+        def get_bdry_residuals(self, frame, ibvp):
+            self.R_left, self.R_right, self.R_bottom, self.R_top = boundary_residual(self.u_frames[-1], frame, ibvp.b, ibvp.a, ibvp.u_amb())
+            self.R_left_means, self.R_right_means, self.R_bottom_means, self.R_top_means = [np.mean(R) for R in [self.R_left, self.R_right, self.R_bottom, self.R_top]]
+
+
+
     n_frames = 20
     start = time.time()
     params = [ibvp1, frame1, frame1.nt//n_frames, n_frames]
-    params2 = [ibvp1, frame2, frame2.nt//n_frames, n_frames]
+
+    data_dict_all = dict({"Green" : case_data(GreenFunctionSolver.pipeline, 'go--'),
+                      "Explicit" : case_data(HeatExplicitSolver.pipeline, 'b^-.'),
+                      "Crank-Nicolson" : case_data(HeatCrankNicolsonSolver.pipeline, 'r*:'),
+                      "PINN" : case_data(HeatPINNSolver.pipeline, 'ro--')
+                      })
+
+    data_dict_test = dict({"Crank-Nicolson" : case_data(HeatCrankNicolsonSolver.pipeline, 'r*:')
+                      })
+
+    data_dict = data_dict_all
+
+    # Erstelle Figure+Axes (korrekte Verwendung)
+    fig_pde, ax_pde = plt.subplots(figsize=(8,4))
+    fig_bdry_xl, ax_bdry_xl = plt.subplots(figsize=(8,4))
+
+    # Loop über deine Solver-Objekte
+    for k, v in data_dict.items():
+        print(k)
+        # Methoden aufrufen (sollen Attribute wie R_pde_means / R_left_means setzen)
+        v.get_solution(params)
+        v.get_pde_residual(frame1, ibvp1.alpha)
+        v.get_bdry_residuals(frame1, ibvp1)
+
+        # Versuche zuerst die vorgefertigten "means" zu verwenden,
+        # falls nicht vorhanden, berechne geeignete Normen aus den Rohdaten.
+        R_pde_means = getattr(v, 'R_pde_means', None)
+        if R_pde_means is None and hasattr(v, 'R_pde'):
+            # z.B. L2-norm pro Frame
+            R_pde_means = np.array([np.sqrt(np.mean(r**2)) for r in v.R_pde])
+
+        R_left_means = getattr(v, 'R_left_means', None)
+        if R_left_means is None and hasattr(v, 'R_left'):
+            # z.B. max-abs über Randpunkte pro Frame
+            R_left_means = np.array([np.abs(r) for r in v.R_left])
+
+        # Fallbacks, falls gar nichts gefunden wurde
+        if R_pde_means is None:
+            raise AttributeError(f"{k}: Keine PDE-Residuen gefunden (R_pde_means oder R_pde).")
+        if R_left_means is None:
+            raise AttributeError(f"{k}: Keine Rand-Residuen gefunden (R_left_means oder R_left).")
+
+        label = f"{k} residuals"
+        # plotsymb kann z.B. '-o', 's--' sein; stelle sicher, dass es existiert
+        plot_sym = getattr(v, 'plotsymb', '-o')
+
+        ax_pde.plot(R_pde_means, plot_sym, linewidth=1, markersize=5, label=label)
+        ax_bdry_xl.plot([v.R_left_means, v.R_right_means, v.R_bottom_means, v.R_top_means], v.plotsymb, linewidth=1, markersize=5, label=label)
+        # ax_bdry_xl.plot([[0,v.R_left_means], [1,v.R_right_means], [2,v.R_bottom_means], [3,v.R_top_means]], v.plotsymb, linewidth=1, markersize=5, label=label)
+        # ax_bdry_xl.plot(R_left_means, plot_sym, linewidth=1, markersize=5, label=label)
+
+    # Achsenbeschriftung, Legenden und Grid
+    ax_pde.set_xlabel('Timeframe')
+    ax_pde.set_ylabel('PDE residual (L2 per frame)')
+    ax_pde.set_title('PDE residuals')
+    ax_pde.legend()
+    ax_pde.grid(True, alpha=0.3)
+
+    ax_bdry_xl.set_xlabel('Timeframe')
+    ax_bdry_xl.set_ylabel('Boundary residual (max abs per frame)')
+    ax_bdry_xl.set_title('Boundary residuals (left boundary)')
+    ax_bdry_xl.legend()
+    ax_bdry_xl.grid(True, alpha=0.3)
+
+    # Anzeigen aller Figures
+    plt.show()
+
+
+    plt_pde = plt.figure()
+    plt_bdry = plt.figure()
+    
+    for [k,v] in data_dict.items():
+        print(k)
+        v.get_solution(params)
+        v.get_pde_residual(frame1, ibvp1.alpha)
+        v.get_bdry_residuals(frame1, ibvp1)
+        s = k+' function'
+        plt_pde.plot(v.R_pde_means, v.plotsymb, linewidth=1, markersize=5, label=s)
+        plt_bdry.plot([[0,v.R_left_means], [1,v.R_right_means], [2,v.R_bottom_means], [3,v.R_top_means]], v.plotsymb, linewidth=1, markersize=5, label=s)
+
+    # Optional: Achsenbeschriftung, Legende usw.
+    plt_pde.xlabel('Timeframe')
+    plt_pde.title('PDE residuals')
+    plt_pde.legend()
+
+    plt_bdry.xlabel('Timeframe')
+    plt_bdry.title('Boundary residuals')
+    plt_bdry.legend()
+
+    plt_pde.show()
+    plt_bdry.show()
+
+    # Erster Plot
+    # plt.plot(data_dict['Green'].R_pde_means, 'go--', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ Green function')
+
+    # Zweiter Plot
+    # plt.plot(data_dict['Explicit'].R_pde_means, 'b^-.', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ explicit')
+
+    # Dritter Plot
+    # plt.plot(data_dict['Crank-Nicolson'].R_pde_means, 'r*:', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ Green function')
+
+    # Vierter Plot
+    # plt.plot(data_dict['PINN'].R_pde_means, 'ro--', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ Crank-Nicolson')
+
+    
+
+    
+
+
+    # params2 = [ibvp1, frame2, frame2.nt//n_frames, n_frames]
     # u_frames_crank_nicolson, u_means_crank_nicolson = HeatCrankNicolsonSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
     u_frames_crank_nicolson, u_means_crank_nicolson = HeatCrankNicolsonSolver.pipeline(*params)
     u_frames_green, u_means_green = GreenFunctionSolver.pipeline(*params)
     u_frames_explicit, u_means_explicit = HeatExplicitSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
-    
     u_frames_pinn, u_means_pinn = HeatPINNSolver.pipeline(ibvp1, frame1, frame1.nt//n_frames, n_frames)
 
     print(f"Time: {(time.time()-start):.4}")
@@ -195,7 +380,7 @@ def main() -> None:
     plt.plot(u_means_green, 'r*:', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ Green function')
 
     # Vierter Plot
-    plt.plot(u_means_crank_nicolson, 'r*:', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ Crank-Nicolson')
+    plt.plot(u_means_crank_nicolson, 'ro--', linewidth=1, markersize=5, label='$T_{\mathrm{avg}}$ Crank-Nicolson')
 
     # Optional: Achsenbeschriftung, Legende usw.
     plt.xlabel('Timeframe')

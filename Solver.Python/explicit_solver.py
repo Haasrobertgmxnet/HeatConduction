@@ -69,7 +69,7 @@ class HeatExplicitSolver():
         h = h.reshape(ny, nx)
 
         neumann_bc = HeatBoundaryCondition(ibvp.a, ibvp.b, ibvp.c)
-        dx, dy = lx/nx, ly/ny
+        dx, dy = lx/(nx-1), ly/(ny-1)
         solver = HeatExplicitSolver(ibvp.alpha, dx, dy, dt, neumann_bc.apply_robin, use_numba)
         if not solver.check_stability():
             print("CFL condition violated")
