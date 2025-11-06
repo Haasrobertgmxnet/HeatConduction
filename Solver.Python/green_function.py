@@ -1,62 +1,122 @@
-﻿import numpy as np
-from boundary_conditions import HeatBoundaryCondition
+﻿import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+import numpy as np
 import time
 
 class GreenFunctionSolver:
     def __init__(self, alpha, bc, Lx=1.0, Ly=1.0, M=20, N=20):
+        """
+        Initialize the Green function solver for a 2D heat equation with Robin-type boundary conditions.
+
+        Parameters
+        ----------
+        alpha : float
+            Diffusion coefficient in the PDE u_t = alpha * (u_xx + u_yy) + f.
+        bc : object
+            Boundary condition object providing attributes a, b, c.
+            Represents boundary constraints of the form a*u + b*(du/dn) = c.
+        Lx, Ly : float, optional
+            Domain size in x and y directions. (Currently logic assumes unit domain.)
+        M, N : int, optional
+            Number of eigenmodes in x and y (truncation size). (Currently fixed to stored arrays.)
+        """
         print(f"Gesuchter Wert: {0.48503638*204/214}")
         self.alpha = alpha
         self.apply_bc = bc
 
+        # Precomputed eigenvalues for separated Laplacian eigenmodes
         self.eig_vals = np.array([ 0.96018887, 3.43101431, 6.43819715, 9.52961783, 12.64540952,
          15.77134816, 18.90244679, 22.03652001, 25.17246196, 28.30965385, 31.44772266,
          34.58643025, 37.72561748, 40.86517399, 44.00502085, 47.14510012, 50.2853683,
          53.42579212, 56.56634566])
 
-        # 0.4787
+        # Scaling coefficients corresponding to eigenmodes
         self.scal = np.array([0.48503638, 0.1087893,  0.04307502, 0.0239897, 0.01570866,
          0.01128258, 0.00860051, 0.00683343, 0.00559754, 0.0046936, 0.00400903,
          0.00347597, 0.00305132, 0.00270657, 0.00242215, 0.00218426, 0.00198289,
          0.00181066, 0.00166199])
 
-
-
     def phi(self, eig_vals, x):
-        mode = np.atleast_1d(eig_vals)[:, None]   # (M,1)
-        x = np.atleast_1d(x)[None, :]   # (1,N)
+        """
+        Compute separated spatial eigenfunctions phi_k(x) satisfying the boundary conditions.
+
+        Parameters
+        ----------
+        eig_vals : array-like of shape (M,)
+            Eigenvalues k associated with separated Laplace operator modes.
+        x : float or array-like of shape (Nx,) or broadcastable
+            Spatial coordinate(s) where phi is evaluated.
+
+        Returns
+        -------
+        phi_vals : ndarray of shape (M, Nx)
+            Matrix where each row corresponds to phi_k(x) for one eigenmode.
+
+        Notes
+        -----
+        Defines mode shapes:
+            phi_k(x) = sin(k x) + (k/gamma) * cos(k x),
+        where gamma = a / b from the boundary condition.
+        """
+        mode = np.atleast_1d(eig_vals)[:, None]
+        x = np.atleast_1d(x)[None, :]
         gamma = self.apply_bc.a / self.apply_bc.b
         phi_vals = np.sin(mode * x) + (mode/gamma)*np.cos(mode * x)
 
         debug_ = False
-
         if not debug_:
             return phi_vals
-
-        if debug_:
-            arg = mode * x
-            print(f"Size x {x.size}")
-            print(f"Size mode {mode.size}")
-            print(f"Size arg {arg.size}")
-            print(f"Size phi: {phi_vals.size}")
-
+        # Diagnostic output if needed
+        arg = mode * x
+        print(f"Size x {x.size}")
+        print(f"Size mode {mode.size}")
+        print(f"Size arg {arg.size}")
+        print(f"Size phi: {phi_vals.size}")
         return phi_vals
 
-    # vereinfachte, korrigierte green-Funktion (konzeptuell)
-    def green(self, x,y,x0,y0,tau):
+    def green(self, x, y, x0, y0, tau):
+        """
+        Compute the Green function G(x,y,tau; x0,y0) and integrated kernel G_int
+        for the 2D heat equation using truncated separation of variables.
+
+        Parameters
+        ----------
+        x, y : float or array-like
+            Coordinates where the solution is evaluated. May be scalars or 1D grids.
+        x0, y0 : float or array-like (broadcastable to match x,y evaluation loops)
+            Source coordinates in the domain.
+        tau : float
+            Time difference t - s (always non-negative). Represents heat propagation time.
+
+        Returns
+        -------
+        G : ndarray of shape (len(x), len(y))
+            Green function kernel applied to initial condition.
+        G_int : ndarray of shape (len(x), len(y))
+            Time-integrated Green function for convolution with source term f.
+
+        Notes
+        -----
+        Uses a rank-M spectral approximation:
+            G(x,y,t; x0,y0) = sum_{m,n} phi_m(x) phi_m(x0) phi_n(y) phi_n(y0)
+                              * exp(-alpha (k_m^2 + k_n^2) t)
+        """
         if tau < 0:
             return np.zeros((len(x), len(y)))
 
         eig_vals = self.eig_vals
         scal = self.scal
-        
-        k = np.atleast_1d(eig_vals)
-        # numerische Normierung auf ganzen Gitterpunkten xs, ys
-        xs = ys = np.linspace(0.,1.,20)
-        PHI_x = self.phi(k, xs)   # shape (M, Nx)
-        PHI_y = self.phi(k, ys)   # shape (M, Ny)
-        dx = np.mean(np.diff(xs)); dy = np.mean(np.diff(ys))
 
-        
+        k = np.atleast_1d(eig_vals)
+
+        xs = ys = np.linspace(0.,1.,20)
+        PHI_x = self.phi(k, xs)
+        PHI_y = self.phi(k, ys)
+        dx = np.mean(np.diff(xs))
+        dy = np.mean(np.diff(ys))
+
         variant1 = False
         if variant1:
             norms_x = np.sqrt(np.sum(PHI_x**2, axis=1)*dx)
@@ -67,165 +127,129 @@ class GreenFunctionSolver:
         PHI_x0_norm = self.phi(k, x0)*scal[:,None]
         PHI_y_norm = self.phi(k, y)*scal[:,None]
         PHI_y0_norm = self.phi(k, y0)*scal[:,None]
-        # PHI_x_norm = self.phi(k, x) / norms_x[:,None]
-        # PHI_x0_norm = self.phi(k, x0) / norms_x[:,None]
-        # PHI_y_norm = self.phi(k, y) / norms_y[:,None]
-        # PHI_y0_norm = self.phi(k, y0) / norms_y[:,None]
 
         km2 = k**2
-
         ex = self.alpha * (km2[:,None] + km2[None,:])
-        A = np.exp(-ex * tau)   # shape (M,M)
+        A = np.exp(-ex * tau)
         A_int = 1/ex*(1-A)
 
-        # Vectorized assemble (fast): build C = A @ (psi_y0 * psi_y)
-        C = A @ (PHI_y0_norm[:,0][:,None] * PHI_y_norm)  # (M, Ny)
-        D = (PHI_x0_norm[:,0][:,None] * PHI_x_norm)      # (M, Nx)
-        G = D.T @ C   # (Nx, Ny)
+        C = A @ (PHI_y0_norm[:,0][:,None] * PHI_y_norm)
+        D = (PHI_x0_norm[:,0][:,None] * PHI_x_norm)
+        G = D.T @ C
 
-        C_int = A_int @ (PHI_y0_norm[:,0][:,None] * PHI_y_norm)  # (M, Ny)
-        D = (PHI_x0_norm[:,0][:,None] * PHI_x_norm)      # (M, Nx)
-        G_int = D.T @ C_int   # (Nx, Ny)
+        C_int = A_int @ (PHI_y0_norm[:,0][:,None] * PHI_y_norm)
+        D = (PHI_x0_norm[:,0][:,None] * PHI_x_norm)
+        G_int = D.T @ C_int
 
         return G, G_int
 
-
-    def green_old(self, x, y, x0, y0, tau):
-        if tau < 0.0:
-            return 0.0
-
-        eig_vals = self.eig_vals19
-
-        scal = np.array([0.48503638, 0.1087893,  0.04307502, 0.0239897, 0.01570866,
-         0.01128258, 0.00860051, 0.00683343, 0.00559754, 0.0046936, 0.00400903,
-         0.00347597, 0.00305132, 0.00270657, 0.00242215, 0.00218426, 0.00198289,
-         0.00181066, 0.00166199])
-
-        eig_vals = self.eig_vals10
-
-        scal = np.array([0.48503638, 0.1087893,  0.04307502, 0.0239897, 0.01570866,
-         0.01128258, 0.00860051, 0.00683343, 0.00559754, 0.0046936])
-
-        #eig_vals = np.array([ 0.96018887, 3.43101431, 6.43819715, 9.52961783, 12.64540952])
-
-        #scal = np.array([0.48503638, 0.1087893,  0.04307502, 0.0239897, 0.01570866])
-
-        # A = np.exp(-self.alpha * 2*eig_vals[None, :]**2 * tau)
-        A0 = np.exp(-self.alpha * 0.5 * eig_vals[None, :]**2 * tau)
-
-        dx = np.mean(np.diff(x))
-        t = self.phi(eig_vals,  np.atleast_1d(x))
-        s = np.sum(t**2, axis=1)*dx
-        s = 1/np.sqrt(s)
-
-        # scal = scal[:, None] * A0.T
-        scal = s[:, None] * A0.T
-        phi_m_x  = scal*self.phi(eig_vals,  np.atleast_1d(x))    # (M, Nx)
-        phi_m_x0 = scal*self.phi(eig_vals,  np.atleast_1d(x0))   # (M, N0)
-        phi_n_y  = scal*self.phi(eig_vals,  np.atleast_1d(y))    # (N, Ny)
-        phi_n_y0 = scal*self.phi(eig_vals,  np.atleast_1d(y0))   # (N, N0)
-
-        G = np.einsum('ip,jq->pq', phi_m_x * phi_m_x0, phi_n_y * phi_n_y0)
-        return G
-
-        term1 = phi_m_x * phi_m_x0
-        term2 = phi_n_y * phi_n_y0
-
-        print(f"phi_m_x.shape: {phi_m_x.shape}")
-        print(f"phi_m_x0.shape: {phi_m_x0.shape}")
-        print(f"phi_n_y.shape: {phi_n_y.shape}")
-        print(f"phi_n_y0.shape: {phi_n_y0.shape}")
-
-        print(f"term1.shape: {term1.shape}")
-        print(f"term2.shape: {term2.shape}")
-
-        print(f"G.shape: {G.shape}")
-        return G
-
     def u(self, x, y, t, u0_func, f_func=None):
-        green = self.green
-        nx, ny = 101, 101  # ungerade!
-        xs = np.linspace(0, 1, nx)
-        ys = np.linspace(0, 1, ny)
+        """
+        Compute solution u(x,y,t) using Green function convolution.
+
+        Parameters
+        ----------
+        x, y : array-like
+            Target grid coordinates for evaluating the solution.
+        t : float
+            Time at which solution is evaluated.
+        u0_func : callable u0(x,y)
+            Initial condition function.
+        f_func : callable f(x,y), optional
+            Source term function in the PDE. If None, homogeneous equation assumed.
+
+        Returns
+        -------
+        U : ndarray of shape (len(x), len(y))
+            Solution field at time t.
+        """
+        # --- Prepare cache for projections and Base (once) ---
+        if not hasattr(self, "_proj_cache"):
+            xs = np.linspace(0, 1, 101)
+            ys = np.linspace(0, 1, 101)
+            dx = xs[1] - xs[0]
+            dy = ys[1] - ys[0]
+
+            k = self.eig_vals
+            phi_x = self.phi(k, xs) * self.scal[:, None]   # (M, Nx)
+            phi_y = self.phi(k, ys) * self.scal[:, None]   # (M, Ny)
+
+            self._proj_cache = {
+                "xs": xs, "ys": ys, "dx": dx, "dy": dy,
+                "phi_x": phi_x, "phi_y": phi_y,
+            }
+
+        xs = self._proj_cache["xs"]; ys = self._proj_cache["ys"]
+        dx = self._proj_cache["dx"]; dy = self._proj_cache["dy"]
+        phi_x = self._proj_cache["phi_x"]; phi_y = self._proj_cache["phi_y"]
 
         U_ofs = self.apply_bc.c / self.apply_bc.a
+        k = self.eig_vals
+        lam = k**2
+        L = (lam[:, None] + lam[None, :])                  # (M, M)
 
-        G = np.zeros((nx, ny, len(x), len(y)))
-        for i, x0 in enumerate(xs):
-            for j, y0 in enumerate(ys):
-                g1, g2 = green(x, y, x0, y0, t)
-                phi = g1 * (u0_func(x0, y0) - U_ofs)
-                if f_func is not None:
-                    phi += g2 * f_func(x0, y0)
-                G[i, j, :, :] = phi
+        # --- projection of the initial state (caching once) ---
+        if not hasattr(self, "_C0"):
+            X0, Y0 = np.meshgrid(xs, ys, indexing="ij")
+            F0 = (u0_func(X0, Y0) - U_ofs)                  # (Nx, Ny)
+            self._C0 = phi_x @ F0 @ phi_y.T * dx * dy       # (M, M)
 
-        # Trapez in beiden Richtungen
-        U1 = np.trapz(np.trapz(G, ys, axis=1), xs, axis=0)
-        return U_ofs + U1
+        # --- projection to heat source (f time-independent) (caching once) ---
+        if f_func is not None and not hasattr(self, "_Cf_static"):
+            X0, Y0 = np.meshgrid(xs, ys, indexing="ij")
+            try:
+                F = f_func(X0, Y0)                          # preferred: f(x,y)
+            except TypeError:
+                F = f_func(X0, Y0, 0.0)                     # if signature f(x,y,t)
+            self._Cf_static = phi_x @ F @ phi_y.T * dx * dy # (M, M)
 
-    def u_(self, x, y, t, u0_func, f_func=None):
+        # --- time factors ---
+        decay = np.exp(-self.alpha * L * t)                 # (M, M)
 
-        green = self.green
-        nx, ny = 100, 100
-        xs = np.linspace(0, 1, nx)
-        ys = np.linspace(0, 1, ny)
-        
-        dx, dy = xs[1]-xs[0], ys[1]-ys[0]
-        U_ofs = self.apply_bc.c / self.apply_bc.a
-        # ---- Anfangsbedingungsteil ----
-        U1 = 0.0
-        for x0 in xs[1:]:
-            for y0 in ys[1:]:
-                #print(f"x0: {x0}, y0 {y0}")
-                g1, g2 = green(x, y, x0, y0, t)
-                U1 += (g1* (u0_func(x0,y0) - U_ofs) + g2*f_func(x0, y0))
+        C = self._C0 * decay                                # Anfangsanteil
 
-        return U_ofs + U1*dx*dy
+        if f_func is not None:
+            # closed form for constant f(x,y):
+            # integral_0^t e^{-α L (t-s)} ds = (1 - e^{-α L t}) / (α L)
+            C += self._Cf_static * (1.0 - decay) / (self.alpha * L + 1e-300)
 
-        # ---- Quellen-Term (zeitunabhängig f(x,y)) ----
-        if f_func is None:
-            return U_ofs + U1*dx*dy
+        # --- reconstruction at target grid ---
+        phi_x_eval = self.phi(k, x) * self.scal[:, None]    # (M, Nx_eval)
+        phi_y_eval = self.phi(k, y) * self.scal[:, None]    # (M, Ny_eval)
+        U = phi_x_eval.T @ C @ phi_y_eval                   # (Nx_eval, Ny_eval)
 
-        U2 = 0.0
-        nt = 200  # Anzahl Zeitstufen für zeitliches Integral
-        ts = np.linspace(0, t, nt)
-        dt = ts[1] - ts[0]
-        for s in ts:
-            for x0 in xs:
-                for y0 in ys:
-                    g1, _ = green(x, y, x0, y0, t - s) * f_func(x0, y0)
-                    U2 += g1
-            
-
-        # return U_ofs + U1*dx*dy
-        # return U_ofs + U2*dx*dy*dt
-        return U_ofs + (U1 + U2*dt)*dx*dy
-
-    def u__(self, x, y, t, u0_func, f_func=None, nx=101, ny=101, method="simpson"):
-        green = self.green
-        xs = np.linspace(0, 1, nx)
-        ys = np.linspace(0, 1, ny)
-        dx, dy = xs[1]-xs[0], ys[1]-ys[0]
-        U_ofs = self.apply_bc.c / self.apply_bc.a
-
-        if f_func is None:
-            f_func = lambda x0, y0: 0.0
-
-        # Gitter erstellen
-        X0, Y0 = np.meshgrid(xs, ys, indexing="ij")
-
-        # green gibt Felder (nx, ny) oder (nx, ny, …) zurück:
-        g1, g2 = green(x, y, X0, Y0, t)
-
-        # integrand als Array berechnen
-        integrand = g1 * (u0_func(X0, Y0) - U_ofs) + g2 * f_func(X0, Y0)
-
-        # Integration mit Trapez (du kannst hier auch Simpson reinsetzen)
-        U1 = np.trapz(np.trapz(integrand, ys, axis=1), xs, axis=0)
-
-        return U_ofs + U1
+        return U_ofs + U
 
     def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1):
+        """
+        Helper routine that evolves solution in time and collects frames.
+        
+        Parameters
+        ----------
+        ibvp : object
+            Problem specification providing:
+              - initial_u(x, y)
+              - heat_source(x, y, t) (not used here in prediction mode)
+              - alpha, a, b, c etc. (not directly used in inference)
+        frame : object
+            Grid and time settings:
+              - nx, ny : number of spatial grid points
+              - lx, ly : physical dimensions of the domain
+              - nt : number of time steps
+              - lt : final time
+        t_steps_per_frame : int
+            Unused here (included only for API consistency).
+        n_frames : int
+            Number of time values for which to evaluate and return solution frames.
+
+        Returns
+        -------
+        u_frames : list of ndarray
+            List of predicted temperature fields, each shaped (ny, nx).
+        u_means : list of float
+            Mean temperature value per predicted frame.
+        """
+
         print("Green function")
         nx, ny = frame.nx, frame.ny
         lx, ly = frame.lx, frame.ly
@@ -243,7 +267,11 @@ class GreenFunctionSolver:
             u = solver.u(x,y,tval,ibvp.initial_u,ibvp.heat_source)
             frames.append(u)
             u_mean = u.mean()
+            u_min = u.min()
+            u_max = u.max()
+            min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
+            max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
             u_means.append(u_mean)
-            print(f"Frame {tval:.2f}: u mean={u_mean:.6f}, Time needed {time.time() - start:.4f}")
+            print(f"Frame {tval:.2f}: mean={u_mean:.6f}, min={u_min:.6f} @ {min_idx}, max={u_max:.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
 
         return frames, u_means

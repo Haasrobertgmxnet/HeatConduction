@@ -1,4 +1,5 @@
 ﻿import numpy as np
+import time
 import numpy.linalg as npl
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
@@ -6,8 +7,27 @@ import matplotlib.pyplot as plt
 
 from boundary_conditions import HeatBoundaryCondition
 
-# 1) schnelle Matrix-/RHS-Checks
+# ----------------------------------------------------
+# Debugging and diagnostic helper for matrix structure
+# ----------------------------------------------------
 def dbg_matrix_checks(solver):
+    """
+    Perform structural and spectral checks on a Crank-Nicolson solver instance.
+
+    Parameters
+    ----------
+    solver : HeatCrankNicolsonSolver
+        Solver object containing Lh, A, B matrices and grid metadata.
+
+    What it checks
+    --------------
+    - Magnitude of largest eigenvalues of the B matrix.
+    - Sparsity and structure of the discrete Laplacian Lh.
+    - Symmetry properties of Lh.
+    - Consistency relation: A + B ≈ 2I for theta = 0.5 (Crank-Nicolson).
+    - Consistency relation: B - A ≈ dt * alpha * Lh.
+    - Tests whether system A x = B * 1 can be solved (detects singularities).
+    """
     vals = spla.eigs(solver.B, k=5, which='LM', return_eigenvectors=False)
     print("max |λ(B)| =", np.max(np.abs(vals)))
 
@@ -25,49 +45,22 @@ def dbg_matrix_checks(solver):
         
     print(f"r: {r}")
 
-    Dx, qx_left = build_D1(solver.nx, solver.dx, *solver.robin_x)
-    M = Dx.toarray()
-    print("Dx[0:6, 0:8] =\n", M[0:6, 0:8])
-
-    eig_Dx = spla.eigs(Dx, k=1, which='LR', return_eigenvectors=False)
-    print("largest eigenvalue of Dx:", eig_Dx[0])
-    eig_Dx = spla.eigs(Dx, k=1, which='SR', return_eigenvectors=False)
-    print("smallest eigenvalue of Dx:", eig_Dx[0])
-
-    Dy, qy_left = build_D1(solver.ny, solver.dy, *solver.robin_y)
-    M = Dy.toarray()
-    print("Dy[0:6, 0:8] =\n", M[0:6, 0:8])
-
-    eig_Dy = spla.eigs(Dy, k=1, which='LR', return_eigenvectors=False)
-    print("largest eigenvalue of Dy:", eig_Dy[0])
-    eig_Dy = spla.eigs(Dy, k=1, which='SR', return_eigenvectors=False)
-    print("smallest eigenvalue of Dy:", eig_Dy[0])
-
-    ### Check Lh
-
-    # 1) größter reeller Eigenwert von Lh (LR = largest real part)
+    # Check eigenvalues of Lh (real parts)
     eig_Lh = spla.eigs(solver.Lh, k=1, which='LR', return_eigenvectors=False)
     print("largest eigenvalue of Lh:", eig_Lh[0])
     eig_Lh = spla.eigs(solver.Lh, k=1, which='SR', return_eigenvectors=False)
     print("smallest eigenvalue of Lh:", eig_Lh[0])
 
-    # 2) kleinster (most negative) Eigenwert
-    ny = solver.ny  # oder nx, je nachdem
+    ny = solver.ny
     nx = solver.nx
 
-    # 3)
-    # kleine Ansicht der ersten 6x8 Einträge
     M = solver.Lh.toarray()
-    print("Lh[0:6, 0:8] =\n", M[0:6, 0:8])
-    # direkte Abfrage der fraglichen Einträge:
-    print("Lh[0,1] =", M[0,1])
-    print("Lh[1,2] =", M[1,2])
-
-    # 4)
+    print("M[0:18,0:18] =\n", M[0:18,0:18])
 
     do_plts = False
 
     if do_plts:
+        # Optional visual diagnostic plotting
         plt.figure(figsize=(12,5))
         plt.subplot(1,2,1)
         plt.spy(solver.Lh, markersize=1)
@@ -82,35 +75,28 @@ def dbg_matrix_checks(solver):
         plt.spy(solver.Lh, markersize=1)
         plt.title("Lh sparsity with block gridlines")
 
-        # Gitterlinien auf Blockgrenzen zeichnen:
         for j in range(1, ny):
             plt.axhline(j * nx, color='red', lw=0.3, alpha=0.5)
             plt.axvline(j * nx, color='red', lw=0.3, alpha=0.5)
-
         plt.show()
 
         plt.figure(figsize=(6,6))
         plt.imshow(solver.Lh.toarray(), cmap='coolwarm', interpolation='none')
         plt.colorbar(label='Matrix value')
         plt.title("Lh (colored by value)")
-
-        nx, ny = solver.nx, solver.ny
         for j in range(1, ny):
             plt.axhline(j * (nx+1) - 0.5, color='black', lw=0.3, alpha=0.4)
             plt.axvline(j * (nx+1) - 0.5, color='black', lw=0.3, alpha=0.4)
-
         plt.show()
 
     print("A: shape", solver.A.shape, "nnz", solver.A.nnz)
     print("B: shape", solver.B.shape, "nnz", solver.B.nnz)
-    # prüfen auf NaN/Inf in Datenarrays
+
     for name, M in (("Lh", solver.Lh), ("A", solver.A), ("B", solver.B)):
         vals = M.data if hasattr(M, "data") else M.toarray().ravel()
         print(f"{name}: has_nan={np.isnan(vals).any()}, has_inf={np.isinf(vals).any()}, min={np.nanmin(vals):.3e}, max={np.nanmax(vals):.3e}")
-    # q_total
-    q = solver.q_total
-    print("q_total: has_nan", np.isnan(q).any(), "has_inf", np.isinf(q).any(), "min", np.nanmin(q), "max", np.nanmax(q))
-    # Testlösung: solve A x = B*(const vector) — prüft Singularität
+
+    # Solve A x = B * 1 to detect singularity issues
     try:
         n = solver.A.shape[0]
         test_rhs = solver.B.dot(np.ones(n))
@@ -119,168 +105,39 @@ def dbg_matrix_checks(solver):
     except Exception as e:
         print("spsolve Test fehlgeschlagen:", type(e), e)
 
-    # Test 1: A + B ≈ 2I
+    # Consistency checks specific to CN time integration
     I = sp.identity(solver.A.shape[0], format='csr')
     test1 = (solver.A + solver.B) - 2 * I
     print("‖A + B - 2I‖ =", np.linalg.norm(test1.toarray(), ord='fro'))
 
-    # Test 2: B - A ≈ dt * alpha * Lh
     test2 = (solver.B - solver.A) - solver.dt * solver.alpha * solver.Lh
     print("‖B - A - dt*alpha*Lh‖ =", np.linalg.norm(test2.toarray(), ord='fro'))
 
-def build_D1(N, h, alpha_left, beta_left, g_left,
-             alpha_right, beta_right, g_right):
-    # beta_left = -beta_left
 
-    main = np.zeros(N, dtype=np.float64)
-    off1 = np.zeros(N-1, dtype=np.float64)
-    off2 = np.zeros(N-1, dtype=np.float64)
-
-    # Innenpunkte (i=1..N-1)
-    main[1:-1] = -2.0 / h**2
-    off1[:] = 1.0 / h**2
-    off2[:] = 1.0 / h**2
-
-    q = np.zeros(N, dtype=np.float64)
-
-    tiny = 1e-14
-
-    # --- LEFT boundary (i=0) ---
-    if abs(beta_left) < tiny:  # Dirichlet: alpha*u0 = g_left  => u0 = g_left/alpha
-        if abs(alpha_left) < tiny:
-            raise ValueError("Ungültige linke BC: alpha_left und beta_left beide ~0")
-        main[0] = 1.0
-        off1[0] = off2[0] = 0.0
-        q[0]    = g_left / alpha_left
-    else:
-        # Ghost-elimination (siehe Ableitung)
-        main[0] = -2.0 / h**2 - 2.0 * alpha_left / (beta_left * h)
-        off2[0] = 2.0 / h**2
-        q[0]    = -2.0 * g_left / (beta_left * h)
-
-    # --- RIGHT boundary (i=N) ---
-    if abs(beta_right) < tiny:  # Dirichlet at right
-        if abs(alpha_right) < tiny:
-            raise ValueError("Ungültige rechte BC: alpha_right und beta_right beide ~0")
-        main[-1] = 1.0
-        off1[-1] = off2[-1] = 0.0
-        q[-1]    = g_right / alpha_right
-    else:
-        main[-1] = -2.0 / h**2 - 2.0 * alpha_right / (beta_right * h)
-        # off2[-1] = 1.0 / h**2
-        off1[-1] = 2.0 / h**2
-        q[-1]    = -2.0 * g_right / (beta_right * h)
-
-    D = sp.diags([off1, main, off2], offsets=[-1,0,1], shape=(N, N), format='csr')
-    return D, q
-
-def build_D1_fixed(npts, h, alpha_left, beta_left, g_left,
-                   alpha_right, beta_right, g_right):
-    """
-    Baut 1D Laplace-Operator mit Robin-Randbedingungen.
-    
-    Args:
-        npts: Anzahl der Gitterpunkte (nx oder ny)
-        h: Gitterabstand dx oder dy
-        alpha_left, beta_left, g_left: Linke RB: alpha*u + beta*du/dn = g
-        alpha_right, beta_right, g_right: Rechte RB
-    
-    Returns:
-        D: Sparse Matrix (npts x npts)
-        q: RHS-Vektor für Randbedingungen
-    """
-    tiny = 1e-14
-    
-    main = np.zeros(npts)
-    lower = np.zeros(npts-1)  # untere Nebendiagonale (offset=-1)
-    upper = np.zeros(npts-1)  # obere Nebendiagonale (offset=+1)
-    q = np.zeros(npts)
-    
-    # Innere Punkte: Standard 3-Punkt-Stencil
-    main[1:-1] = -2.0 / h**2
-    lower[:] = 1.0 / h**2   # Verbindet i mit i-1
-    upper[:] = 1.0 / h**2   # Verbindet i mit i+1
-    
-    # --- LINKER RAND (i=0) ---
-    if abs(beta_left) < tiny:
-        # Dirichlet: alpha*u[0] = g_left
-        if abs(alpha_left) < tiny:
-            raise ValueError("Ungültige linke RB: alpha und beta beide ~0")
-        main[0] = 1.0
-        upper[0] = 0.0
-        q[0] = g_left / alpha_left
-    else:
-        # Robin: alpha*u[0] + beta*(u[1]-u[-1])/(2h) = g_left
-        # Ghost-elimination: u[-1] = u[1] - 2h*g/beta + 2h*alpha*u[0]/beta
-        # u''[0] = (u[-1] - 2*u[0] + u[1])/h²
-        #        = (2*u[1] - 2*u[0])/h² + 2*alpha*u[0]/(beta*h) - 2*g/(beta*h)
-        main[0] = -2.0 / h**2 - 2.0 * alpha_left / (beta_left * h)
-        upper[0] = 2.0 / h**2
-        q[0] = -2.0 * g_left / (beta_left * h)
-    
-    # --- RECHTER RAND (i=npts-1) ---
-    if abs(beta_right) < tiny:
-        # Dirichlet
-        if abs(alpha_right) < tiny:
-            raise ValueError("Ungültige rechte RB: alpha und beta beide ~0")
-        main[-1] = 1.0
-        lower[-1] = 0.0
-        q[-1] = g_right / alpha_right
-    else:
-        # Robin: alpha*u[N] + beta*(u[N+1]-u[N-1])/(2h) = g_right
-        # u[N+1] = u[N-1] + 2h*g/beta - 2h*alpha*u[N]/beta
-        # u''[N] = (u[N-1] - 2*u[N] + u[N+1])/h²
-        #        = (2*u[N-1] - 2*u[N])/h² - 2*alpha*u[N]/(beta*h) + 2*g/(beta*h)
-        main[-1] = -2.0 / h**2 + 2.0 * alpha_right / (beta_right * h)
-        lower[-1] = 2.0 / h**2
-        q[-1] = -2.0 * g_right / (beta_right * h)
-    
-    # Sparse Matrix: lower (offset=-1), main (offset=0), upper (offset=+1)
-    D = sp.diags(
-        [lower, main, upper],
-        offsets=[-1, 0, 1],
-        shape=(npts, npts),
-        format='csr'
-    )
-    
-    return D, q
-
-
-# Die build_L_h Funktion bleibt unverändert (war bereits korrekt für nx×ny Konvention)
-def build_L_h_fixed(nx, ny, dx, dy, robin_x, robin_y):
-    """
-    Baut 2D Laplace-Operator für nx×ny Gitter.
-    
-    Args:
-        nx, ny: Anzahl Gitterpunkte (NICHT Intervalle!)
-        dx, dy: Gitterabstände
-        robin_x: (alpha_left, beta_left, g_left, alpha_right, beta_right, g_right)
-        robin_y: (alpha_bottom, beta_bottom, g_bottom, alpha_top, beta_top, g_top)
-    """
-    # nx, ny sind bereits Anzahl Punkte
-    Dx, qx = build_D1(nx, dx, *robin_x)
-    Dy, qy = build_D1(ny, dy, *robin_y)
-    
-    Ix = sp.identity(nx, format='csr')
-    Iy = sp.identity(ny, format='csr')
-    
-    # 2D Laplace: Lh = Dy ⊗ Ix + Iy ⊗ Dx
-    Lh = sp.kron(Dy, Ix, format='csr') + sp.kron(Iy, Dx, format='csr')
-    
-    # RHS für Randbedingungen
-    qx_2d = np.kron(np.ones(ny), qx)
-    qy_2d = np.kron(qy, np.ones(nx))
-    q_total = qx_2d + qy_2d
-    
-    return Lh, q_total
-
-# ---------- Korrigierte Solver-Klasse ----------
+# ----------------------------------------------------
+# Crank-Nicolson heat equation solver
+# ----------------------------------------------------
 class HeatCrankNicolsonSolver():
-    def __init__(self, alpha, dx, dy, dt, nx, ny, nt, robin_x, robin_y):
+    def __init__(self, alpha, dx, dy, dt, nx, ny, nt, robin):
         """
-        nx, ny: Anzahl Intervalle (nicht Anzahl Punkte). Punkte sind nx+1, ny+1.
+        Crank-Nicolson implicit solver for the 2D heat equation with Robin boundary conditions.
+
+        Parameters
+        ----------
+        alpha : float
+            Diffusion coefficient.
+        dx, dy : float
+            Grid spacing in x and y.
+        dt : float
+            Time step size.
+        nx, ny : int
+            Number of grid points in x and y directions.
+        nt : int
+            Total number of time steps (used for pipeline processing).
+        robin : tuple (a, b, c)
+            Boundary condition parameters for a*u + b*(du/dn) = c.
         """
-        self.theta = 0.5
+        self.theta = 0.5  # Crank-Nicolson weighting
         self.alpha = alpha
         self.dt = dt
         self.dx = dx
@@ -288,73 +145,139 @@ class HeatCrankNicolsonSolver():
         self.nx = nx
         self.ny = ny
         self.nt = nt
-        self.robin_x = robin_x
-        self.robin_y = robin_y
+        self.a = robin[0]
+        self.b = robin[1]
+        self.c = robin[2]
 
-        # Stabilitätskennzahl (nur informativ für CN)
         self.lamx = self.alpha * self.dt / dx**2
         self.lamy = self.alpha * self.dt / dy**2
         self.Lh = None
+        self.q = None
         self._factor = None
 
-        # Aufbau Matrizen
         self.build_L_h()
         self.crank_nicolson_matrices(self.alpha)
 
-        dbg_matrix_checks(self)
-
     def build_L_h(self):
-        #self.Lh, self.q_total = build_L_h_fixed(self.nx, self.ny, self.dx, self.dy, self.robin_x, self.robin_y)
-        #return
-        print(f"self.dx: {self.dx}")
-        print(f"self.nx: {self.nx}")
-        print(f"self.dx * self.nx: {self.dx*(self.nx-1)}")
-        Dx, qx_left = build_D1(self.nx, self.dx, *self.robin_x)
-        Dy, qy_bottom = build_D1(self.ny, self.dy, *self.robin_y)
+        """
+        Construct the discrete Laplacian operator Lh using Kronecker products,
+        incorporating Robin boundary conditions via ghost-point elimination.
+
+        Returns
+        -------
+        None
+        """
+        class D1():
+            """
+            One-dimensional second derivative matrix with Robin boundary conditions.
+            Constructs tri-diagonal operator D and boundary source term q.
+            """
+            def __init__(self, N, h, a_coef, b_coef, c_coef):
+                main = np.zeros(N, dtype=np.float64)
+                off1 = np.zeros(N-1, dtype=np.float64)
+                off2 = np.zeros(N-1, dtype=np.float64)
+
+                main[1:-1] = -2.0 / h**2
+                off1[:] = 1.0 / h**2
+                off2[:] = 1.0 / h**2
+
+                q = np.zeros(N, dtype=np.float64)
+                tiny = 1e-14
+
+                if abs(b_coef) < tiny:  # Dirichlet
+                    if abs(a_coef) < tiny:
+                        raise ValueError("Invalid BC: alpha and beta both ~0")
+                    main[0] = 0.0
+                    main[-1] = 0.0
+                    off1[-1] = off2[0] = 0.0
+                else:  # Robin
+                    main[0] = -2.0 / h**2 - 2.0 * a_coef / (b_coef * h)
+                    off2[0] = 2.0 / h**2
+                    main[-1] = -2.0 / h**2 - 2.0 * a_coef / (b_coef * h)
+                    off1[-1] = 2.0 / h**2
+                    q[0] = 2.0 * c_coef / (b_coef * h)
+                    q[-1] = 2.0 * c_coef / (b_coef * h)
+
+                self.q = q
+                self.D = sp.diags([off1, main, off2], offsets=[-1,0,1], shape=(N, N), format='csr')
+
+        DxInstance = D1(self.nx, self.dx, self.a, self.b, self.c)
+        DyInstance = D1(self.ny, self.dy, self.a, self.b, self.c)
+
+        Dx = DxInstance.D
+        Dy = DyInstance.D
+        qx = DxInstance.q
+        qy = DyInstance.q
+
         Ix = sp.identity(self.nx)
         Iy = sp.identity(self.ny)
-        Ireg = -3e3*sp.identity(self.nx*self.ny)
-        self.Lh = sp.kron(Iy, Dx) + sp.kron(Dy, Ix) # + Ireg
-        # Rand-RHS
-        qx_2d = np.kron(np.ones(self.ny), qx_left)
-        qy_2d = np.kron(qy_bottom, np.ones(self.nx))
-        self.q_total = qx_2d + qy_2d   # Länge (nx+1)*(ny+1)
+        self.Lh = sp.kron(Iy, Dx) + sp.kron(Dy, Ix)
+
+        qx_2d = np.kron(np.ones(self.ny), qx)
+        qy_2d = np.kron(qy, np.ones(self.nx))
+
+        self.q_total = qx_2d + qy_2d
+
+        corner_indices = [
+            0,
+            self.nx - 1,
+            (self.ny - 1) * self.nx,
+            self.ny * self.nx - 1
+        ]
+        for idx in corner_indices:
+            self.q_total[idx] = 0.5 * (qx_2d[idx] + qy_2d[idx])
 
     def crank_nicolson_matrices(self, kappa):
+        """
+        Construct A and B matrices for Crank-Nicolson update:
+            A u^{n+1} = B u^{n} + dt*(q_total * alpha + f)
+
+        Parameters
+        ----------
+        kappa : float
+            Diffusion coefficient (often equals alpha).
+        """
         print(f"Kappa: {kappa}")
         n = self.Lh.shape[0]
-        # Use csc for SuperLU
         I = sp.identity(n, format='csc')
         Lh_csr = self.Lh.tocsr()
         A = (I - (1 - self.theta) * self.dt * kappa * Lh_csr)
         B = (I + self.theta * self.dt * kappa * Lh_csr)
-        # keep them in sparse formats you need:
-        self.A = A.tocsc()    # important: factorization likes csc
+        self.A = A.tocsc()
         self.B = B.tocsr()
 
-        # Factorize once with SuperLU (fast apply later)
-        # spla.factorized expects csc/CSR (returns function calling SuperLU)
         try:
-            fa = None
-            fa = spla.factorized(self.A) 
-            self._factor = spla.factorized(self.A)  # returns function rhs -> x
+            self._factor = spla.factorized(self.A)
         except Exception:
-            # fallback: precompute splu object and wrap it
             self._splu = spla.splu(self.A)
             self._factor = lambda rhs: self._splu.solve(rhs)
 
     def check_stability(self):
+        """
+        Return stability indicator (for reference only; CN is unconditionally stable).
+        """
         stability_number = self.lamx + self.lamy
         return stability_number <= 0.5, stability_number
 
     def step(self, u, f = None):
-        # Akzeptiere sowohl 2D als auch 1D u:
-        
+        """
+        Perform one Crank-Nicolson time step.
+
+        Parameters
+        ----------
+        u : ndarray (ny, nx) or 1D flattened version
+            Current temperature field.
+        f : ndarray (ny, nx), optional
+            Source term.
+
+        Returns
+        -------
+        u_new : ndarray
+            Updated field, same shape as input u.
+        """
         input_was_2d = (u.ndim == 2)
         if input_was_2d:
-            # In Ihrer Kronecker-Bauweise ist die Ordnung lexicographisch
-            # (x variiert schneller). Wir benutzen 'C' order (row-major) konsistent.
-            u_vec = u.ravel(order='C')   # Länge (nx+1)*(ny+1)
+            u_vec = u.ravel(order='C')
         else:
             u_vec = u.copy()
 
@@ -366,34 +289,15 @@ class HeatCrankNicolsonSolver():
             else:
                 f_vec = f
 
-        # print(f"self.dt: { self.dt }")
-        p0 = u_vec
-        p1 = 25.0*self.B.dot(np.ones_like(u_vec))
-        p2 = self.B.dot(u_vec)
-        p3 = self.dt * f_vec
-        p4 = self.dt * self.q_total
+        rhs = self.B.dot(u_vec) + self.dt * f_vec + self.dt * self.q_total * self.alpha
 
-        #for i, p in enumerate([p0, p1, p2, p3, p4], start=1):
-            #print(f"Part {i} max: {np.max(p):.6e}, mean: {np.mean(p):.6e}")
-
-        # if f_vec is old and new
-        # rhs = self.B.dot(u_vec) + 0.5*self.dt*(f_vec + f_vec) + 0.5*self.dt*(self.q_total + self.q_total)
-        # rhs = self.B.dot(u_vec) + self.dt * (f_vec + self.q_total)
-        # rhs = p2 + p3 - 0.11*p4
-        rhs = p2 + p3 + p4
-        #print(f"RHS MAX: {np.mean(rhs)}")
-        # print(f"rhs max: {rhs.max()}")
-
-        # print(f"Shape: {u_vec.shape}")
-
-        # Löse (verwende faktorisierten Solver falls vorhanden)
-        if self._factor is not None:
+        if self._factor is not None and self.theta < 1.0:
             u_new_vec = self._factor(rhs)
-        else:
+        if self._factor is None and self.theta < 1.0:
             u_new_vec = spla.spsolve(self.A, rhs)
+        if self.theta == 1.0:
+            u_new_vec = 1.0*rhs
 
-        #print(f"Means: u old: {np.mean(u_vec)}, u new: {np.mean(u_new_vec)}")
-        #print(f"Maxs: u old: {np.max(u_vec)}, u new: {np.max(u_new_vec)}")
         if input_was_2d:
             u_new = u_new_vec.reshape((self.ny, self.nx), order='C')
             return u_new
@@ -401,50 +305,83 @@ class HeatCrankNicolsonSolver():
             return u_new_vec
 
     def n_steps(self, u, f = None, nt=1):
+        """
+        Perform nt Crank-Nicolson time steps.
+        """
         for _ in range(nt):
             u = self.step(u, f)
         return u
 
-    # --------- Korrigierte pipeline-Funktion (als freie Funktion) ----------
     def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1):
+        """
+        Run the solver over multiple frames in time and collect solution snapshots.
+
+        Parameters
+        ----------
+        ibvp : object
+            Problem specification providing:
+              - alpha
+              - a, b, c boundary coefficients
+              - initial_u(x,y)
+              - heat_source(x,y)
+        frame : object
+            Frame/grid configuration providing:
+              - nx, ny : grid size
+              - lx, ly : domain size
+              - nt : total time steps
+              - lt : final simulation time
+        t_steps_per_frame : int
+            Number of update steps per output frame.
+        n_frames : int
+            Number of simulation frames to compute.
+        use_numba : bool
+            Whether to accelerate using numba JIT.
+
+        Returns
+        -------
+        frames : list of ndarray
+            Sequence of solution fields at output times.
+        u_means : list of float
+            Mean temperature per frame.
+        """
+        print("Crank-Nicolson solver")
         nx, ny = frame.nx, frame.ny
         lx, ly = frame.lx, frame.ly
         lt = frame.lt
-
-        # Anzahl Punkte:
-        # nxp, nyp = nx+1, ny+1
         dt = lt / frame.nt
 
-        # Gitterpunkte
         x = np.linspace(0, lx, nx)
         y = np.linspace(0, ly, ny)
-        X, Y = np.meshgrid(x, y, indexing='xy')   # shape (nyp, nxp) if indexing='xy' -> careful
-        # Besser für unsere ravel(order='C') Ziel: shape (ny+1, nx+1) with row index = y
+        X, Y = np.meshgrid(x, y, indexing='xy')
         X2, Y2 = np.meshgrid(x, y, indexing='xy')
-        # initial u: ensure shape (ny+1, nx+1)
         u0 = ibvp.initial_u(X2.ravel(), Y2.ravel()).reshape((ny, nx), order='C')
         h = ibvp.heat_source(X2.ravel(), Y2.ravel()).reshape((ny, nx), order='C')
+        robin =  HeatBoundaryCondition(ibvp.a, ibvp.b, ibvp.c).to_tuple_x()
 
-        neumann_bc = HeatBoundaryCondition(ibvp.a, ibvp.b, ibvp.c)
         dx, dy = lx / (nx-1), ly / (ny-1)
-
-        robin_x = neumann_bc.to_tuple_x()
-        robin_y = neumann_bc.to_tuple_y()
-
-        solver = HeatCrankNicolsonSolver(ibvp.alpha, dx, dy, dt, nx, ny, frame.nt, robin_x, robin_y)
+        solver = HeatCrankNicolsonSolver(ibvp.alpha, dx, dy, dt, nx, ny, frame.nt, robin)
         stable, sn = solver.check_stability()
         if not stable:
             print("CFL condition (lamx+lamy) = {:.4g} > 0.5".format(sn))
 
+        u_corr = solver.c / solver.a
+        u_corr = 0
         frames = [u0.copy()]
-        u = u0.copy()
+        w = u0.copy()
         u_means = []
+
         for n_frame in range(n_frames):
-            u = solver.n_steps(u, h, t_steps_per_frame)
+            start = time.time()
+            w = solver.n_steps(w, h, t_steps_per_frame)
+            u = w
             frames.append(u.copy())
             u_mean = u.mean()
+            u_min = u.min()
+            u_max = u.max()
+            min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
+            max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
             u_means.append(u_mean)
-            tval = (n_frame+1) * (lt / n_frames)
-            print(f"Frame {tval:.2f}: u mean={u_mean:.6f}, ")
-            # print(f"NC *** Frame {n_frame+1}/{n_frames} t={tval:.4f}: mean u = {u_mean:.6e}")
+            tval = (n_frame + 1) * (lt / n_frames)
+            print(f"Frame {tval:.2f}: mean={u_mean:.6f}, min={u_min:.6f} @ {min_idx}, max={u_max:.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
+        
         return frames, u_means

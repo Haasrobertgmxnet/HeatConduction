@@ -5,6 +5,8 @@ from matplotlib.widgets import Slider, Button
     
 def single_plot(u_frame, lx, ly, title, cmap='hot', isolines=False, save_path=None):
     plt.figure(figsize=(6,5))
+    plt.grid(False)
+
     plt.imshow(u_frame, origin='lower', extent=[0, lx, 0, ly], cmap=cmap)
     plt.colorbar(label="Temperature")
 
@@ -38,6 +40,7 @@ def anim_slide(u_frames, lx, ly, title, cmap ='hot', isolines = False):
     nt_vis, nx, ny = results.shape
     fig, ax = plt.subplots(figsize=(8,6))
     plt.subplots_adjust(bottom=0.25)
+    plt.grid(False)
 
     vmin, vmax = results.min(), results.max()
     cax = ax.imshow(results[0], origin='lower', extent=[0, lx, 0, ly],
@@ -93,9 +96,6 @@ def anim_slide(u_frames, lx, ly, title, cmap ='hot', isolines = False):
             contours = ax.contour(X, Y, results[frame], levels=10, colors=isol_color)
 
         fig.canvas.draw_idle()
-
-
-
 
     slider.on_changed(update_slider)
 
