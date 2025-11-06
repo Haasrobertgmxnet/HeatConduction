@@ -278,14 +278,14 @@ a \Temp + b \frac{\partial \Temp}{\partial \nu } = c, \text{ or } \gamma (\Temp 
 \end{equation*}
 for solutions $\Temp $ of $ \partial \Temp / \partial t = \alpha\Laplace \Temp +f $ and $a \Temp_b = c, \; \gamma = a/b $.
 
- A typical initial condition which will be used here is $ \Temp (x,y,0)= \Temp_0 (x, y) $. 
+A typical initial condition which will be used here is $ \Temp (x,y,0)= \Temp_0 (x, y) $. 
 
 \section{Eigenfunctions and Green's Function}
 
 The idea of Green's function is to provide an exact solution which  fulfills (\ref{HeatEquation2D}) subject to initial and boundary condition. For simple domains $\Omega $ an analytical expression can be calculated which can be used to calculate values of $ \Temp $ at every spatial point $(x,y) \in \Omega $ to any time $t>0 $. For difficult domains it is not possible to derive a useful analytical expression for the Green's function that allows for value evaluations of $\Temp$. Nevertheless Green's function allow to get insights and estimates for a solution. Since the solution of a well-posed problem is unique, insights, e.g. a-priori estimates and regularity results from Green's function are valid for the solution of the problem no matter in which way this solution has been calculated.
 
 \subsection{The homogeneous Heat Conduction Problem}
-To construct a Green's function first a particular solution of the homegenous problem, i.e.
+To construct a Green's function first a particular solution of the homogenous problem, i.e.
 \begin{eqnarray} \label{homogenHeatC}
 \frac{\partial \wTemp }{\partial t } &=& \alpha\Laplace \wTemp  , \text{ in } \Omega , \\
 \wTemp (x,y,0 ) & = & \wTemp_0(x,y) \label{homogenIC} , \\
