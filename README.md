@@ -227,8 +227,8 @@ Das Repository enthält vordefinierte Testfälle:
 ### Entwicklerhinweise
 
 Für detaillierte Informationen zu einzelnen Modulen siehe:
-- [Solver.Python Dokumentation](Solver.Python/README_DE.md)
-- [API-Referenz](Solver.Python/API_REFERENCE_DE.md)
+- [Solver.Python Dokumentation](Solver.Python/solver_readme_de.md)
+- [API-Referenz](...)
 
 ### Lizenz
 
@@ -463,8 +463,8 @@ El repositorio contiene casos de prueba predefinidos:
 ### Notas para Desarrolladores
 
 Para información detallada sobre módulos individuales, consulte:
-- [Documentación Solver.Python](Solver.Python/README_ES.md)
-- [Referencia API](Solver.Python/API_REFERENCE_ES.md)
+- [Documentación Solver.Python](Solver.Python/solver_readme_es.md)
+- [Referencia API](...)
 
 ### Licencia
 
@@ -699,8 +699,8 @@ The repository contains predefined test cases:
 ### Developer Notes
 
 For detailed information on individual modules, see:
-- [Solver.Python Documentation](Solver.Python/README_EN.md)
-- [API Reference](Solver.Python/API_REFERENCE_EN.md)
+- [Solver.Python Documentation](Solver.Python/solver_readme_en.md)
+- [API Reference](...)
 
 ### License
 
