@@ -914,4 +914,382 @@ frames, means = HeatExplicitSolver.pipeline(
 
 ```python
 # Once during initialization
-self._factor = spla.factorized(self.A
+self._factor = spla.factorized(self.A)
+
+# Fast solving at each time step
+u_new = self._factor(rhs)
+```
+
+**Memory Savings:**
+- Full matrix: O(n²) with n = nx·ny
+- Sparse: O(5n) (5-point stencil)
+- Example 100×100: 10⁴ → 5·10⁴ elements (factor 0.05)
+
+### Thread Control
+
+```python
+import os
+os.environ["OMP_NUM_THREADS"] = "4"
+os.environ["OPENBLAS_NUM_THREADS"] = "4"
+os.environ["MKL_NUM_THREADS"] = "4"
+```
+
+**Why?**
+- Deterministic results
+- Avoid CPU overload
+- Better performance with multiple parallel jobs
+
+### Memory Management
+
+**Large Simulations:**
+```python
+# Save frames selectively
+frames = []
+for n in range(n_frames):
+    u = solver.n_steps(u, f, steps_per_frame)
+    if n % 10 == 0:  # Only every 10th frame
+        frames.append(u.copy())
+```
+
+**Streaming Output:**
+```python
+# Write directly to disk
+for n in range(n_frames):
+    u = solver.n_steps(u, f, steps_per_frame)
+    np.save(f'output/frame_{n:04d}.npy', u)
+```
+
+## Extension
+
+### Adding a New Solver
+
+**Step 1: Create Solver Class**
+
+```python
+# my_solver.py
+class MyCustomSolver:
+    def __init__(self, alpha, dx, dy, dt, bc):
+        self.alpha = alpha
+        self.dx = dx
+        self.dy = dy
+        self.dt = dt
+        self.apply_bc = bc
+    
+    def step(self, u, f=None):
+        # Implement one time step
+        u_new = ... # Your method here
+        return u_new
+    
+    def n_steps(self, u, f=None, nt=1):
+        for _ in range(nt):
+            u = self.step(u, f)
+            u = self.apply_bc(u, self.dx, self.dy)
+        return u
+    
+    @staticmethod
+    def pipeline(ibvp, frame, t_steps_per_frame, n_frames):
+        # Complete simulation
+        # ... setup code ...
+        
+        solver = MyCustomSolver(alpha, dx, dy, dt, bc)
+        frames = [u0]
+        u_means = []
+        
+        for n in range(n_frames):
+            u = solver.n_steps(u, f, t_steps_per_frame)
+            frames.append(u.copy())
+            u_means.append(u.mean())
+            # Logging ...
+        
+        return frames, u_means
+```
+
+**Step 2: Integration into Comparison**
+
+```python
+# In Solver.Python.py
+from my_solver import MyCustomSolver
+
+data = {
+    "My Method": CaseData(MyCustomSolver.pipeline, "-", "#ff7f00", 'v'),
+    # ... other solvers ...
+}
+```
+
+### New Boundary Conditions
+
+**Mixed Boundary Conditions:**
+
+```python
+class MixedBoundaryCondition:
+    def __init__(self, left_bc, right_bc, bottom_bc, top_bc):
+        self.left = left_bc    # (a, b, c)
+        self.right = right_bc
+        self.bottom = bottom_bc
+        self.top = top_bc
+    
+    def apply(self, u, dx, dy):
+        u_new = u.copy()
+        
+        # Left boundary
+        a, b, c = self.left
+        if abs(b) < 1e-14:
+            u_new[0,:] = c/a
+        else:
+            u_new[0,:] = (c*dx + b*u[1,:]) / (b + a*dx)
+        
+        # Analogously for other sides
+        # ...
+        
+        return u_new
+```
+
+**Time-Dependent Boundary Conditions:**
+
+```python
+class TimeDependentBC:
+    def __init__(self, bc_func):
+        self.bc_func = bc_func  # bc_func(t) → (a, b, c)
+    
+    def apply(self, u, dx, dy, t):
+        a, b, c = self.bc_func(t)
+        # Like HeatBoundaryCondition.apply
+        # ...
+```
+
+### New Source Terms
+
+**Time-Dependent Source:**
+
+```python
+class PulsedSource:
+    def __init__(self, x0, y0, sigma, freq, amplitude):
+        self.x0 = x0
+        self.y0 = y0
+        self.sigma = sigma
+        self.freq = freq  # Pulse frequency (Hz)
+        self.amp = amplitude
+    
+    def evaluate(self, x, y, t):
+        r2 = (x - self.x0)**2 + (y - self.y0)**2
+        spatial = np.exp(-r2 / self.sigma**2)
+        temporal = np.sin(2*np.pi*self.freq*t)
+        return self.amp * spatial * temporal
+```
+
+**Multiple Sources:**
+
+```python
+class MultiSource:
+    def __init__(self, sources):
+        self.sources = sources  # List of source objects
+    
+    def evaluate(self, x, y, t=0):
+        total = np.zeros_like(x)
+        for source in self.sources:
+            total += source.evaluate(x, y, t)
+        return total
+
+# Usage
+s1 = GaussKernel(0.3, 0.3, 0.05, 200)
+s2 = GaussKernel(0.7, 0.7, 0.05, 300)
+multi = MultiSource([s1, s2])
+
+ibvp = IBVPData(
+    alpha=0.1,
+    heat_source=multi.evaluate,
+    # ...
+)
+```
+
+### Adaptive Time Stepping
+
+```python
+class AdaptiveExplicitSolver(HeatExplicitSolver):
+    def __init__(self, alpha, dx, dy, dt_max, bc, cfl_target=0.4):
+        super().__init__(alpha, dx, dy, dt_max, bc)
+        self.dt_max = dt_max
+        self.cfl_target = cfl_target
+    
+    def adaptive_step(self, u, f=None):
+        # Estimate local time derivative
+        u_t = self.step(u, f) - u
+        max_change = np.abs(u_t).max()
+        
+        # Adjust time step
+        if max_change > 0:
+            dt_safe = self.cfl_target * self.dx**2 / (self.alpha * max_change)
+            self.dt = min(dt_safe, self.dt_max)
+            self.lamx = self.alpha * self.dt / self.dx**2
+            self.lamy = self.alpha * self.dt / self.dy**2
+        
+        return self.step(u, f)
+```
+
+### Parallel Execution
+
+**Multiple Solvers in Parallel:**
+
+```python
+from multiprocessing import Pool
+
+def run_solver(params):
+    solver_class, ibvp, frame = params
+    return solver_class.pipeline(ibvp, frame, 1000, 20)
+
+solvers = [
+    (HeatExplicitSolver, ibvp1, frame1),
+    (HeatCrankNicolsonSolver, ibvp1, frame1),
+    (GreenFunctionSolver, ibvp1, frame1),
+]
+
+with Pool(3) as pool:
+    results = pool.map(run_solver, solvers)
+```
+
+### Diagnostic Tools
+
+**Matrix Sparsity Analysis:**
+
+```python
+from crank_nicolson import dbg_matrix_checks
+
+solver = HeatCrankNicolsonSolver(...)
+dbg_matrix_checks(solver)
+```
+
+**Output:**
+- Eigenvalues of B and Lₕ
+- Sparsity pattern (optional with plots)
+- Consistency checks
+- Singularity check
+
+**Energy Monitoring:**
+
+```python
+def thermal_energy(u, dx, dy):
+    """Calculate total thermal energy."""
+    return np.sum(u) * dx * dy
+
+energies = []
+for frame in frames:
+    E = thermal_energy(frame, dx, dy)
+    energies.append(E)
+
+# Energy should decrease monotonically for Dirichlet BC
+import matplotlib.pyplot as plt
+plt.plot(energies)
+plt.xlabel('Frame')
+plt.ylabel('Thermal Energy')
+plt.show()
+```
+
+---
+
+## Common Errors and Solutions
+
+### Error 1: CFL Violation
+
+**Symptom:**
+```
+Frame 5.00: mean=28.453, min=-1e10, max=1e10
+```
+
+**Cause:** Time step too large for explicit solver.
+
+**Solution:**
+```python
+# Increase time steps or refine grid
+dt_max = 0.5 * dx**2 / alpha
+nt = int(lt / dt_max) + 1
+frame = FrameData(lx, ly, lt, nx, ny, nt)
+```
+
+### Error 2: Singular Matrix
+
+**Symptom:**
+```
+LinAlgError: singular matrix
+```
+
+**Cause:** Incorrect boundary conditions or degenerate geometry.
+
+**Solution:**
+```python
+# Check boundary conditions
+bc = HeatBoundaryCondition(a, b, c)
+if abs(a) < 1e-14 and abs(b) < 1e-14:
+    print("Error: both a and b are zero!")
+```
+
+### Error 3: Slow Convergence
+
+**Symptom:** Simulation runs for hours.
+
+**Solutions:**
+1. Enable Numba: `use_numba=True`
+2. Larger time steps (Crank-Nicolson)
+3. Coarser grid for testing
+4. Fewer output frames
+
+### Error 4: Memory Error
+
+**Symptom:**
+```
+MemoryError: Unable to allocate array
+```
+
+**Solutions:**
+```python
+# Reduce frame list
+frames = []
+for n in range(n_frames):
+    u = solver.n_steps(u, f, steps)
+    if n % 5 == 0:  # Only every 5th frame
+        frames.append(u.copy())
+
+# Or reduce dtype
+u = u.astype(np.float32)  # instead of float64
+```
+
+---
+
+## References and Further Reading
+
+### Literature
+
+1. **Finite Differences:**
+   - LeVeque, R. J. (2007). *Finite Difference Methods for Ordinary and Partial Differential Equations*
+   
+2. **Crank-Nicolson:**
+   - Crank, J., & Nicolson, P. (1947). *A practical method for numerical evaluation of solutions of partial differential equations of the heat-conduction type*
+
+3. **PINNs:**
+   - Raissi, M., Perdikaris, P., & Karniadakis, G. E. (2019). *Physics-informed neural networks: A deep learning framework for solving forward and inverse problems*
+
+4. **Green's Functions:**
+   - Duffy, D. G. (2015). *Green's Functions with Applications*
+
+### Advanced Topics
+
+- **AMR (Adaptive Mesh Refinement):** Dynamic grid refinement
+- **Multigrid Methods:** Faster solution of implicit systems
+- **Operator Splitting:** Treatment of convection + diffusion
+- **Higher-Order Schemes:** WENO, DG methods
+
+### Online Resources
+
+- [NumPy Documentation](https://numpy.org/doc/)
+- [SciPy Sparse Matrices](https://docs.scipy.org/doc/scipy/reference/sparse.html)
+- [Numba User Guide](https://numba.readthedocs.io/)
+- [PyTorch Tutorials](https://pytorch.org/tutorials/)
+
+---
+
+## License and Contact
+
+This project is open source under the MIT License.
+
+**Repository:** https://github.com/Haasrobertgmxnet/HeatConduction
+
+**Issues and contributions** are welcome!
