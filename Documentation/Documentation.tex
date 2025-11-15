@@ -390,9 +390,15 @@ In case of $\gamma \not= 0 $ the eigenfunctions are given by
 \begin{equation} \label{ONB1}
 \phi_n (x) = C_n \cdot \left(\mathrm{sin} (\mu_n x) + \frac{\mu_n }{\gamma } \mathrm{cos} (\mu_n x) \right) \text{ where } n>0 ,
 \end{equation}
-and $C_n $ so that $ \| phi_n \|_{L^2} = 1 $. In detail, $C_n $ fulfills
+and $C_n $ so that $ \| \phi_n \|_{L^2} = 1 $. In detail, $C_n $ fulfills
 \begin{equation}
-C_n  = \left( \frac{1}{\mu_n } \left( \frac{1}{2} \left( 1+ \left(\frac{\mu_n }{\gamma } \right)^2 \right) \mu_n^2 + \frac{1}{2} \left( \left(\frac{\mu_n }{\gamma } \right)^2 -1 \right) \mathrm{sin} (\mu_n ) \mathrm{cos} (\mu_n ) + \frac{\mu_n }{\gamma } \mathrm{sin}^2 (\mu_n ) \right)\right)^{-\tfrac{1}{2} }
+C_n = \left(
+    \frac{1}{2}
+    - \frac{\sin(2\mu_n)}{4\mu_n}
+    + \frac{1}{2\gamma}\bigl(1 - \cos(2\mu_n)\bigr)
+    + \frac{\mu_n^2}{\gamma^2}
+      \left(\frac{1}{2} + \frac{\sin(2\mu_n)}{4\mu_n}\right)
+\right)^{-\tfrac{1}{2}}.
 \end{equation}
 
 In case of $\gamma = 0 $ the eigenfunctions are given by
@@ -411,7 +417,7 @@ Defining $ \phi_{m,n} (x,y) = \phi_m (x) \cdot \phi_n (y) $ we have an orthonorm
 Then, every function $ f \in H^{2,2} (\Omega ) $ can be written as $ f = \sum_{m,n \in I \times I } (\phi_{m,n}, f)_{L^2 } \phi_{m,n} $, where the index set $I = \mathbbm{N} $ in case of $ \gamma \not= 0 $, and $I = \mathbbm{N} \cup \{ 0 \} $ in case of $ \gamma = 0 $.
 We are now able to define Green's function as
 \begin{equation}
-\Green (x,y,x',y',\tau ) = H(\tau ) \sum_{m,n \in I \times I } \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot \mathrm{exp} (-\alpha \phi_{m,n} \tau ),
+\Green (x,y,x',y',\tau ) = H(\tau ) \sum_{m,n \in I \times I } \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot \mathrm{exp} (-\alpha (\mu^2_m + \lambda^2_n) \tau ),
 \end{equation}
 where $H$ is the Heaviside function which is one for $\tau > 0 $ and zero otherwise. With the help of this function a solution $ \wTemp $ of (\ref{homogenHeatC}, \ref{homogenIC}, \ref{homogenBC}) can be constructed as
 \begin{equation}
@@ -490,7 +496,7 @@ To set up the PINN training the approach of \cite{aryal2024a} is used and extend
 \item {\bf Sampling:} Random samples of $N \in \{ 1000,\, 8000 \} $ points, each for $x$, $y$ and $t$, which is a Monte-Carlo sampling.
 \end{enumerate}
 \section{Case Studies}
-\subsection{Case 1: Constant initial temperature with no-flux boundary conditions}
+\subsection{Case Study One: Constant initial temperature with no-flux boundary conditions}
 This case is also discussed in \cite{aryal2024a}. With the introduces PINN setup, we use a thermal diffusivity $\alpha = 0.1 $ in the heat equation. Furthermore we have a Gaussian kernel as a bulk heat source, i.e.
 \begin{equation*}
 f(x,y,t) = S\cdot\mathrm{exp}\left(-\tfrac{(x^2+y^2)}{2r}\right),
@@ -576,16 +582,17 @@ that is $ \| \uTemp \|_{L^\infty (\Omega )} =  \mathrm{sup}_{(x,y) \in \Omega } 
 \end{proof}
 
 
-\subsection{Case 2: Constant initial temperature with Robin boundary conditions}
+\subsection{Case Study Two: Constant initial temperature with Robin boundary conditions}
+\subsubsection*{Some Mathematics}
 In case 1 the domain $\Omega$ is constantly heated over time where the heat cannot dissipate over across the boundary $\partial \Omega $ due to the no-flux boundary condition imposed on $\partial \Omega $. This leads to permanently ascending temperatures over time without reaching an equilibrium. In real life such an isolated system with permanent constant heat support is not realistic. This can be overcome by either
 \begin{itemize}
 \item using another heat source which decreases heat supply over time to zero, or
 \item imposing other boundary conditions which allow for heat flux over the domain boundary.
 \end{itemize}
 In this case the latter approach is used by imposing a Robin boundary condition, i.e.
-\begin{equation*}
+\begin{equation} \label{robin_bc}
 a\cdot(\uTemp-\uTemp_0 ) + b\frac{\partial u}{\partial \nu_{\partial \Omega}} = 0,
-\end{equation*}
+\end{equation}
 where $  \nu_{\partial \Omega} $ is the outer unit normal at the boundary $\partial \Omega $, $\uTemp_0 $ the ambient temperature far from the domain $\Omega $ and its boundary $\partial \Omega $, i.e. far from the thermal boundary layer. The following theorem assures that the solution $\uTemp $ of the heat equation with Robin boundary conditions will tend to a finite equlibrium state if appropriate conditions are fulfilled.
 
 \begin{lemma}[Positiveness] \label{positiveness}
@@ -626,101 +633,8 @@ C_4(x) \mathrm{exp}(-h\cdot y) & \text{ on upper boundary where $ y= 1 $. }
 Since $ \uTemp (0) \geq \uTemp_0 $ and $ f \geq 0 $ in $ \Omega $ only non-negative functions $C_1 $, $C_2 $, $C_3 $ and $C_4 $ are logically possible. Then $w $ is non-negative n the boundary $ \partial \Omega $.
 \end{proof}
 
-\begin{theorem}[Asymptotic long-term behavior of the solution]
-What is to prove??
-\end{theorem}
-
-\begin{proof}
-We choose $ w = \uTemp -\uTemp_0 $ to get 
-\begin{equation*}
-\int_0^t \int_\Omega \psi w \frac{\partial w}{\partial t} \mathrm{d}\volMeas \mathrm{d}t = \alpha \int_0^t \int_\Omega \psi w \Delta w \mathrm{d}\volMeas \mathrm{d}t + \int_0^t \int_\Omega \psi w f \mathrm{d}\volMeas \mathrm{d}t ,
-\end{equation*}
-% where $ \psi = \psi (t) = \mathrm{exp}(\lambda (t_0 -t ))$. The integral on the left hand side gives
-where $ \psi = \psi (t) = \mathrm{d} \Psi (t)/ \mathrm{d}t $. The integral on the left hand side gives
-\begin{eqnarray*}
-\int_0^t \int_\Omega \psi w \frac{\partial w}{\partial t} \mathrm{d}\volMeas \mathrm{d}t & = & \frac{1}{2}\int_0^t \int_\Omega \psi \frac{\partial }{\partial t} \left(w^2 \right) \mathrm{d}\volMeas \mathrm{d}t \\
-& = & \frac{\psi (t)}{2}\int_\Omega w^2 (t) \mathrm{d}\volMeas - \frac{\psi (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas \\
-& - & \frac{1}{2}\int_0^t\frac{\mathrm{d} \psi }{\mathrm{d} t}\int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t ,
-\end{eqnarray*}
-where the first integral on the right hand side evaluates to
-\begin{eqnarray*}
-\int_0^t \int_\Omega \psi w \Delta w \mathrm{d}\volMeas \mathrm{d}t & = & \int_0^t \psi \int_{\partial \Omega } w \frac{\partial w}{\partial \nu_{\partial \Omega }} \mathrm{d}\surfMeas \mathrm{d}t -\int_0^t \psi \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t \\
-& = & - h \int_0^t \psi \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t -\int_0^t \psi \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t .
-\end{eqnarray*}
-Finally, the second integral on the right hand side:
-\begin{eqnarray*}
-\int_0^t \int_\Omega \psi w f \mathrm{d}\volMeas \mathrm{d}t & = & \Psi (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas - \Psi (0)\int_\Omega  w (0) f  \mathrm{d}\volMeas - \int_0^t \Psi \int_\Omega \frac{\partial w}{\partial t} f \mathrm{d}\volMeas \mathrm{d}t \\
-& = & \Psi (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas - \Psi (0)\int_\Omega  w (0) f  \mathrm{d}\volMeas - \int_0^t \Psi \int_\Omega f \cdot\left( \Delta w + f \right) \mathrm{d}\volMeas \mathrm{d}t \\
-& = & \Psi (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas - \Psi (0)\int_\Omega  w (0) f  \mathrm{d}\volMeas \\ 
-& + & \int_0^t \Psi \int_\Omega \nabla f \cdot \nabla w \mathrm{d}\volMeas \mathrm{d}t - \int_0^t \Psi \int_{\partial \Omega } f \frac{\partial w}{\partial \nu_{\partial \Omega }} \mathrm{d}\surfMeas \mathrm{d}t - \int_0^t \Psi \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t \\
-& = & \Psi (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas - \Psi (0)\int_\Omega  w (0) f  \mathrm{d}\volMeas \\ 
-& + & \int_0^t \Psi \int_\Omega \nabla f \cdot \nabla w \mathrm{d}\volMeas \mathrm{d}t + h \int_0^t \Psi \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t - \int_0^t\Psi \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
-\end{eqnarray*}
-For $ \Psi = \Psi (t) $ we just assume
-\begin{eqnarray*}
-\Psi ( t ) & < & 0,\\
-\Psi' ( t ) = \frac{\mathrm{d}\Psi (t) }{\mathrm{d}t} & > & 0,\\
-\Psi'' ( t ) = \frac{\mathrm{d^2}\Psi (t) }{\mathrm{d}t^2} & < & 0.
-\end{eqnarray*}
-Then we have
-\begin{eqnarray*}
-& & \frac{|\Psi' ( t )|}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t|\Psi'' ( t )| \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t + \alpha \int_0^t |\Psi' ( t )| \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t  \\ 
-& + & \alpha h \int_0^t |\Psi' ( t )| \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t + |\Psi ( t )| \int_\Omega  w (t) f  \mathrm{d}\volMeas  \\
-& = & \frac{|\Psi' ( 0 )|}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + |\Psi ( 0)| \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
-& + & h \int_0^t |\Psi ( t )| \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t|\Psi ( t )| \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
-\end{eqnarray*}
-We choose $ \Psi = \Psi (t) = - \mathrm{exp}(\lambda (t_0 -t ))$ with $\lambda > 0$  to get
-\begin{eqnarray*}
-\psi ( t ) & = & \frac{\mathrm{d}\Psi (t) }{\mathrm{d}t} = -\lambda\cdot \Psi (t) = \lambda\cdot \mathrm{exp}(\lambda (t_0 -t )) > 0,\\
-\frac{\mathrm{d}\psi (t) }{\mathrm{d}t} & = & \frac{\mathrm{d}^2\Psi (t) }{\mathrm{d}t^2} = \lambda^2 \cdot \Psi (t) = -\lambda^2\cdot\mathrm{exp}(\lambda (t_0 -t )) < 0 .
-\end{eqnarray*}
-With $\eta = -\Psi > 0 $ we then have
-\begin{eqnarray*}
-& & \frac{\lambda \eta (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t\lambda^2 \eta \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t + \alpha \int_0^t \lambda \eta \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t  \\ 
-& + & \alpha h \int_0^t \lambda\eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t + \eta (t) \int_\Omega  w (t) f  \mathrm{d}\volMeas + h \int_0^t \eta \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t \\
-& = & \frac{\lambda \eta (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + \eta (0) \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
-& + & h \int_0^t \eta \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t\eta \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
-\end{eqnarray*}
-using Lemma \ref{positiveness} we have
-\begin{eqnarray} \label{estimate10}
-& & \frac{\lambda \eta (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t\lambda^2 \eta \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t \\
-& + &\alpha \int_0^t \lambda \eta \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t + \alpha h \int_0^t \lambda\eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t \\
-& \leq & \frac{\lambda \eta (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + \eta (0) \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
-& + & h \int_0^t \eta \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t\eta \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
-\end{eqnarray}
-The boundary integral on the right hand side of the last inequality can be transformed as follows
-\begin{eqnarray*}
-\int_0^t \eta \int_{\partial \Omega } f w \mathrm{d}\surfMeas \mathrm{d}t & = & \int_0^t \eta \int_{\partial \Omega } \frac{f}{\sqrt{\theta }}\cdot \sqrt{\theta } w \mathrm{d}\surfMeas  \mathrm{d}t \\
-& \leq & \frac{\theta }{2} \int_0^t \eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas  \mathrm{d}t + \frac{1}{2\theta } \int_0^t \eta \int_{\partial \Omega } f^2 \mathrm{d}\surfMeas  \mathrm{d}t .
-\end{eqnarray*}
-Choosing $ \theta < 2\alpha \lambda  $ it is possible to rewrite (\ref{estimate10}) as 
-\begin{eqnarray*} \label{estimate10}
-& & \frac{\lambda \eta (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t\lambda^2 \eta \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t \\
-& + &\alpha \int_0^t \lambda \eta \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t + \frac{h}{2 } \left( 2\alpha \lambda - \theta \right)  \int_0^t \eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t \\
-& \leq & \frac{\lambda \eta (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + \eta (0) \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
-& + & \frac{h}{2\theta } \int_0^t \eta \int_{\partial \Omega } f^2 \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t\eta \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t .
-\end{eqnarray*}
-All terms on the right hand side do not depend on $t$ so there exists a constant $C>0 $ such that
-\begin{equation*}
-\frac{\lambda \eta (0)}{2}\int_\Omega  w^2 (0) \mathrm{d}\volMeas + \eta (0) \int_\Omega  w (0) f  \mathrm{d}\volMeas \\
- + \frac{h}{2\theta } \int_0^t \eta \int_{\partial \Omega } f^2 \mathrm{d}\surfMeas \mathrm{d}t + \int_0^t\eta \int_\Omega f^2 \mathrm{d}\volMeas \mathrm{d}t \leq C,
-\end{equation*}
-and finally
-\begin{equation*}
-\frac{\lambda \eta (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas + \frac{1}{2}\int_0^t\lambda^2 \eta \int_\Omega  w^2 \mathrm{d}\volMeas \mathrm{d}t \\
-+\alpha \int_0^t \lambda \eta \int_\Omega |\nabla w |^2  \mathrm{d}\volMeas \mathrm{d}t + \frac{h}{2 } \left( 2\alpha \lambda - \theta \right)  \int_0^t \eta \int_{\partial \Omega } w^2 \mathrm{d}\surfMeas \mathrm{d}t \leq C.
-\end{equation*}
-\end{proof}
-
-\begin{remark}[Limitations of the estimate]
-In the last estimate every term on the left hand side has $ \psi (t) $ as factor. Especially the terms
-\begin{equation*}
-\frac{\psi (t)}{2}\int_\Omega  w^2 (t) \mathrm{d}\volMeas, \text{ and } \frac{\psi (t)}{\lambda }\int_\Omega  w (t) f  \mathrm{d}\volMeas
-\end{equation*}
-will become infinitely small if $t$ grows beyond all limits. That means these two terms do not allow for an asymptotic estimate in $t$.
-\end{remark}
-
-With the choice $u_0 = 25\,^{\circ}\mathrm{C} $, $a=1/2 $ and $ b=1 $ we redo the simulation of case 1 where all other parameters are left unchanged.
+\subsubsection*{Setup and first results}
+With the choice $u_0 = 25\,^{\circ}\mathrm{C} $, $a=1/2 $ and $ b=1 $ in (\ref{robin_bc}) we redo the simulation of case 1 where all other parameters are left unchanged.
 \begin{table}[h!] 
 \centering
 { \renewcommand{\arraystretch}{1.4}
@@ -736,6 +650,20 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
 \end{tabular}}
 \caption{Adjustment and Results.}
 \label{AdjustmentAndResults2}
+\end{table}
+
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cc}
+\toprule
+PDE& Boundary\\
+\midrule
+\includegraphics[width=0.5\textwidth]{Images/pde_res.png} & \includegraphics[width=0.5\textwidth]{Images/bdry_res.png}\\
+\bottomrule
+\end{tabular}}
+\caption{Residuals.}
+\label{PDE_Bdry_res}
 \end{table}
 
 \begin{table}
@@ -782,7 +710,7 @@ Spatial Average of the calculated Temperatures\\
 \caption{Temperature averages for explicit and PINN solver.}
 \label{AverageTempeatures3}
 \end{table}
-which promises convergence if t tends to infinity. The final frame at t = 6 s can be seen in the following heatmaps
+which promises convergence if t tends to infinity. The final frame at t = 6 s can be seen in the following heatmaps.
 \begin{table}
 \centering
 { \renewcommand{\arraystretch}{1.4}
