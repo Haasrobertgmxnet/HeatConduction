@@ -347,7 +347,7 @@ and the boundary condition as
 \end{equation}
 For $ \mu \not= 0 $ the first two cases of (\ref{CaseMu}) can be combined to give
 \begin{equation} \label{NonZeroMuBC}
-B_1 \cdot \left((\gamma^2  - \mu^2) \mathrm{sin}(\mu ) + 2 \mu \gamma \mathrm{cos}(\mu ) \right) = 0 .
+F(\mu ) =  B_1 \cdot \left((\gamma^2  - \mu^2) \mathrm{sin}(\mu ) + 2 \mu \gamma \mathrm{cos}(\mu ) \right) = 0 .
 \end{equation}
 The term of the left hand side of (\ref{NonZeroMuBC}) is a function $F$ of $\mu $. Then the zeros of $F$ are solutions of (\ref{NonZeroMuBC}). The following chart shows this function $F$ and its first zeros for $\gamma = 1/2 $.
 \begin{table}[h!] 
@@ -361,7 +361,7 @@ Function $ F(\mu ) = (\gamma^2  - \mu^2) \mathrm{sin}(\mu ) + 2 \mu \gamma \math
 \bottomrule
 \end{tabular}}
 %\caption{Function $ F(\mu ) = (\gamma^2  - \mu^2) \mathrm{sin}(\mu ) + 2 \mu \gamma \mathrm{cos }(\mu )$ and its Zeros.}
-% \label{AverageTempeatures1}
+\label{ModesFromZeros}
 \end{table}
 %
 As one notices, $\mu = 0 $ is a zero of $ F(\mu ) $. Thus there is the question, if $\mu = 0 $ could be admissible for the approach $ X(x) = B_1 \mathrm{sin}(\mu x) + B_2 \mathrm{cos}(\mu x) $. In this case $X$ reduces to $ X(x) = B_2 \mathrm{cos}(\mu x) = B_2 $ and this inserted into (\ref{homogenBC}) is $ \gamma B_2 + 0 = 0 $ which is $ B_2 = 0 $  and $X(x) = 0 $ whenever $ \gamma \not= 0 $. A similar consideration leads to the conclusion that the approach $ X(x) = A_1 x + A_2 $ leads to $A_1 = A_2 = 0$ and again to $ X(x) = 0$. But $X(x) = 0 $ cannot serve as an eigenelement. Thus, we have proved the following theorem:
@@ -386,6 +386,27 @@ $\mu $ & $ n \pi$, $ n\in \mathbbm{N}\cup \{ 0 \} $ & $ \{ \mu : (\gamma^2  - \m
 \caption{Comparison of the different boundary conditions.}
 \label{ComparisonBC}
 \end{table}
+An observation of the first eigenvalues for the case $\gamma \not= 0 $ may lead to the assumption that each of the eigenvalues $ \{ 6.4382,\, 9.5264,\, 12.6454,\, 15.7713,\dots \} $ have a distance of approximately $ \pi $ to its nearest neighbor. The following result provides a lower bound for the eigenvalues.
+\begin{lemma}[Lower estimate for the eigenvalues]
+In case of $\gamma \not= 0 $ the eigenvalues $\mu_n $ with $ \mu_n > \gamma $ fulfill $ \mu_n \geq n\cdot \pi $, if $ \mu_0 = 0.9602 $.
+\end{lemma}
+
+\begin{proof}
+Consider the equation 
+\begin{equation*}
+\left( \gamma^2 - \mu^2 \right) \cdot \mathrm{tan}(\mu ) + 2\mu\gamma = 0 , \text{ or } \mathrm{tan}(\mu ) = -\frac{2\mu\gamma}{\left( \gamma^2 - \mu^2 \right)} .% \left(\right)
+\end{equation*}
+The solutions are given by
+\begin{equation*}
+\mu_n = n\cdot\pi + \mathrm{arctan}\left(\frac{2\mu_n\gamma}{\left( \gamma^2 - \mu_n^2 \right)}\right) .
+\end{equation*}
+Since $\gamma / \mu_n < 1 $ we can use the addition theorem for the arc tangent, cf. \cite[p. 237]{bronstein1980taschenbuch} to get
+\begin{equation*}
+\mu_n = n\cdot\pi + 2 \mathrm{arctan}\left(\frac{\gamma}{\mu_n}\right) \geq n\cdot\pi ,
+\end{equation*}
+which proves the assertion.
+\end{proof}
+
 In case of $\gamma \not= 0 $ the eigenfunctions are given by
 \begin{equation} \label{ONB1}
 \phi_n (x) = C_n \cdot \left(\mathrm{sin} (\mu_n x) + \frac{\mu_n }{\gamma } \mathrm{cos} (\mu_n x) \right) \text{ where } n>0 ,
@@ -413,9 +434,59 @@ As $x$ varies in $(0,1)$ so $y$ does and the consideration done for $x$ can anal
 \phi_n (y) = C_n \cdot \left(\mathrm{sin} (\mu_n y) + \frac{\mu_n }{\gamma } \mathrm{cos} (\mu_n y) \right) \text{ where } n>0 ,
 \end{equation}
 with the same numbers $\mu_n $ and $C_n $.
+
+\begin{theorem}[Uniform boundedness of the eigenfunctions $\phi_n $] \label{unibound_eigenf}
+For the eigenfunctions $\phi_n $ there is 
+\begin{equation*}
+% \mathrm{sup}_{(x,y) \in \Omega }  | \phi_{m,n} (x, y)  | \leq 1.1 + 0.3\gamma^2 ,
+\mathrm{sup}_{x \in (0,1) } | \phi_n (x)  | \leq \sqrt{1.1 + 0.3\gamma^2 },
+\end{equation*}
+if the spectrum does not contain zero.
+\end{theorem}
+
+\begin{proof}
+For an arbitrarily fixed $n$ define $ z = 2 \mu_n $, and $ \beta = 2 \gamma $, just for simplicity. Now, let us define the following Laurent polynomial $ p(z) = C_{-1} \frac{1}{z} + p_0 (z ) $ , where $p_0 ( z) = C_0 + C_1 z + C_2 z^2 $, and
+\begin{eqnarray*}
+C_{-1} & = & - \mathrm{sin}(z), \\
+C_0 & = & 1 + \frac{2}{\beta }\left( 1 - \mathrm{cos}(z) \right), \\
+C_1 & = & \frac{\mathrm{sin}(z)}{\beta^2 }, \\
+C_2 & = & \frac{1}{\beta^2 } .
+\end{eqnarray*}
+The polynomial $p_0 $ can be estimated as follows 
+\begin{eqnarray*}
+C_0 & \geq & 1, \\
+C_1 z + C_2 z^2 & \geq & \frac{z}{\beta^2 } ( z -1 ),
+\end{eqnarray*}
+that is $ p_0 (z) \geq 1 + \beta^{-2} z (z-1 ) $. It remains to estimate $ C_{-1} z^{-1} $. In case of homogeneous Neumann boundary conditions the spectrum of the Laplace operator contains the eigenvalue $\mu = z = 0 $ abd we cannot estimate anything. In contrast in case of Robin boundary conditions, its spectrum does not contain zero. So, we may assume $ z > 2 \mu_1 = 2\cdot 0.9602 ... = 1.9204 $ which is the double of the first positive zero of $F$ depicted in Figure \ref{ModesFromZeros}. With $ \mathrm{sin}(2 \mu_1)/(2\mu_1) \approx 0.489225 $ we get $ C_{-1} / z \geq - 0.489225 $. Collecting all together we finally get $ p(z) \geq 1 + \beta^{-2} z (z-1 ) - 0.489225 \geq 1/2 + \beta^{-2} z (z-1 ) $. Note that $ 2 C_n^2 = 1 / p_0 (2 \mu_n )  $ and thus $ C_n \leq 1/2 \cdot (1/2 + \beta^{-2} (2\mu_n) ((2\mu_n)-1 ) )^{-1/2} $. Then we have for the $n$-th eigenfunction the following estimate
+\begin{eqnarray*}
+\left(\phi_n (x) \right)^2  & = & 2 C_n^2 \cdot \left(\mathrm{sin} (\mu_n x) + \frac{\mu_n }{\gamma } \mathrm{cos} (\mu_n x) \right)^2 \\
+ & \leq & \frac{\left(\mathrm{sin} (\mu_n x) + \frac{\mu_n }{\gamma } \mathrm{cos} (\mu_n x) \right)^2 }{\tfrac{1}{2} + (2\gamma^{-2}) \mu_n (\mu_n-1 )} \\
+ & \leq & \frac{\left(1 + \frac{\mu_n }{\gamma } \right)^2 }{(2\gamma )^{-2} \mu_n (\mu_n-1 )} \leq 2\frac{1 +  \left(\frac{\mu_n }{\gamma } \right)^2 }{(2\gamma )^{-2} \mu_n (\mu_n-1 )} \\
+ & \leq & \gamma^2\frac{1 +  \left(\frac{\mu_n }{\gamma } \right)^2 }{2 \mu_n (\mu_n-1 )} = \frac{\gamma^2 +  \mu_n^2 }{2 \mu_n (\mu_n-1 )} \\
+ & = & \frac{\left( \mu_n^2 - \mu_n \right) + \left(\mu_n + \gamma^2 \right)}{2 \mu_n (\mu_n-1 )} \\
+ & = & \frac{1}{2} + \frac{ 1}{2 \mu_n-1 } + \frac{\gamma^2 }{2 \mu_n (\mu_n-1 )} \\
+ & \leq & \frac{1}{2} + \frac{ 1}{2 \cdot 0.9204 } + \frac{\gamma^2 }{2 \cdot 1.9204 \cdot 0.9204} \\
+  & \leq & 0.5 + 0.543... + \tfrac{\gamma^2 }{3.5417...} \leq 1.1 + 0.3\gamma^2 \\
+ & \leq & C,
+\end{eqnarray*}
+that is $ | \phi_n (x)  | \leq \sqrt{1.1 + 0.3\gamma^2 } $, uniformly for all $n \in \mathbbm{N} $. 
+\end{proof}
 Defining $ \phi_{m,n} (x,y) = \phi_m (x) \cdot \phi_n (y) $ we have an orthonormal basis of $ H^{2,2} (\Omega ) = H^{2,2} (0,1 ) \times H^{2,2} (0,1 ) $.
 Then, every function $ f \in H^{2,2} (\Omega ) $ can be written as $ f = \sum_{m,n \in I \times I } (\phi_{m,n}, f)_{L^2 } \phi_{m,n} $, where the index set $I = \mathbbm{N} $ in case of $ \gamma \not= 0 $, and $I = \mathbbm{N} \cup \{ 0 \} $ in case of $ \gamma = 0 $.
-We are now able to define Green's function as
+
+\begin{theorem}[Uniform boundedness of the eigenfunctions $\phi_{m,n} $]
+For the eigenfunctions $\phi_{m,n} : \Omega = (0,1)^2 \rightarrow \mathbbm{R} $ there is 
+\begin{equation*} \label{unibound_eigenf_2d}
+\mathrm{sup}_{(x,y) \in \Omega }  | \phi_{m,n} (x, y)  | \leq 1.1 + 0.3\gamma^2 ,
+\end{equation*}
+if Robin boundary conditions are imposed on the boundary.
+\end{theorem}
+
+\begin{proof}
+This is a direct consequence of the Theorem \ref{unibound_eigenf}.
+\end{proof}
+
+We are now define Green's function as
 \begin{equation}
 \Green (x,y,x',y',\tau ) = H(\tau ) \sum_{m,n \in I \times I } \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot \mathrm{exp} (-\alpha (\mu^2_m + \lambda^2_n) \tau ),
 \end{equation}
@@ -425,9 +496,42 @@ where $H$ is the Heaviside function which is one for $\tau > 0 $ and zero otherw
 \end{equation} \label{GreenForHomogenHeatC}
 Since $ \Laplace \Green = \delta $ in the sense of distributions adding a term $ \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t' $ to (\ref{GreenForHomogenHeatC}) allows (\ref{homogenHeatC}) to be extended by the function $f$. A solution $\wTemp$ of this inhomogenized problem is then given by
 \begin{eqnarray} \label{GreenForPartiallyInhomogenHeatC}
-\wTemp (x,y,t)  & = & \int_0^1 \int_0^1  \Green (x,y,x',y', t ) \wTemp_0 (x',y') \mathrm{d}x' \mathrm{d}y' \\
-& + & \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t' .
+\wTemp (x,y,t)  & = & \int_0^1\!\int_0^1  \Green (x,y,x',y', t ) \wTemp_0 (x',y') \mathrm{d}x' \mathrm{d}y' \\
+& + & \int_0^t\!\int_0^1\!\int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t' .
 \end{eqnarray}
+
+\begin{theorem}[Long-time stability of solutions $w$]
+For the eigenfunctions $\phi_{m,n} : \Omega = (0,1)^2 \rightarrow \mathbbm{R} $ there is 
+\begin{equation*} \label{time_stability}
+\mathrm{sup}_{(x,y) \in \Omega }  | \phi_{m,n} (x, y)  | \leq 1.1 + 0.3\gamma^2 ,
+\end{equation*}
+if Robin boundary conditions are imposed on the boundary.
+\end{theorem}
+
+\begin{proof}
+We consider the integral
+\begin{equation*}
+I_N (x,y) = \int_0^t\!\int_0^1\!\int_0^1  \sum_{m,n =1 }^N \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot  f (x',y') a_{m,n } (\tau ) \mathrm{d}x' \mathrm{d}y' \mathrm{d}\tau ,
+\end{equation*}
+with $ a_{m,n } (\tau ) = H(\tau ) \mathrm{exp} (-\alpha (\mu^2_m + \lambda^2_n) \tau ) $ as amplitude function. Since $\sum_{m,n =1 }^N \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot  f (x',y') $ does not depend on $ \tau $ the integration may be decoupled. % using Fubini's theorem
+We then have
+\begin{equation*}
+\int_0^t a_{m,n } (\tau ) \mathrm{d}\tau = \frac{1 - \mathrm{e}^{-\alpha (\mu^2_m + \lambda^2_n) t } }{\alpha (\mu^2_m + \lambda^2_n)} \leq \frac{1 }{\alpha (\mu^2_m + \lambda^2_n)} \leq \frac{1 }{2\alpha \mu^2_1} .
+\end{equation*}
+Furthermore, using Theorem \ref{unibound_eigenf_2d} we get
+\begin{eqnarray*}
+\left| I_N (x,y)\right| & = &  \left|\sum_{m,n =1 }^N \frac{1 - \mathrm{e}^{-\alpha (\mu^2_m + \lambda^2_n) t }}{\alpha (\mu^2_m + \lambda^2_n)} \int_0^1\!\int_0^1 \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot  f (x',y')  \mathrm{d}x' \mathrm{d}y' \right| \\
+& \leq & \left( 1.1 + 0.3\gamma^2 \right) \left| \sum_{m,n =1 }^N \frac{1 - \mathrm{e}^{-\alpha (\mu^2_m + \lambda^2_n) t } }{\alpha (\mu^2_m + \lambda^2_n)} \int_0^1\!\int_0^1 \phi_{m,n} (x', y' ) \cdot  f (x',y')  \mathrm{d}x' \mathrm{d}y' \right| .
+\end{eqnarray*}
+\end{proof}
+
+
+
+
+
+
+
+
 
 \subsection{The inhomogeneous Heat Conduction Problem}
 The full inhomogenous heat conduction problem is given by
@@ -436,7 +540,7 @@ The full inhomogenous heat conduction problem is given by
 \uTemp (x,y,0 ) & = & \uTemp_0(x,y) \label{inhomogenIC} , \\
 \gamma ( \uTemp - \uTemp_{\mathrm{amb}} ) + \frac{\partial \uTemp }{\partial \nu } &=& 0 \text{ on } \partial \Omega  \label{inhomogenBC} .
 \end{eqnarray}
-We assume $ \uTemp_{\mathrm{amb}} $ is a constant. With $ \wTemp = \uTemp - \uTemp_{\mathrm{amb}} $ and $ \wTemp_0 = \uTemp_0 - \uTemp_{\mathrm{amb}} $ a solution of the problem $ \partial \wTemp / \partial t = \alpha \Laplace \wTemp + f $ and the conditions (\ref{homogenIC}, \ref{homogenBC}) can be constructed via (\ref{GreenForPartiallyInhomogenHeatC}). Vise versa, a solution of the inhomogeneous problem (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}) can be defined via $ \uTemp = \wTemp + \uTemp_{\mathrm{amb}} $ where $ \wTemp $ is constructed by (\ref{GreenForPartiallyInhomogenHeatC}) again.
+We assume $ \uTemp_{\mathrm{amb}} $ is a constant. With $ \wTemp = \uTemp - \uTemp_{\mathrm{amb}} $ and $ \wTemp_0 = \uTemp_0 - \uTemp_{\mathrm{amb}} $ a solution of the problem $ \partial \wTemp / \partial t = \alpha \Laplace \wTemp + f $ and the conditions (\ref{homogenIC}, \ref{homogenBC}) can be constructed via (\ref{GreenForPartiallyInhomogenHeatC}). Vice versa, a solution of the inhomogeneous problem (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}) can be defined via $ \uTemp = \wTemp + \uTemp_{\mathrm{amb}} $ where $ \wTemp $ is constructed by (\ref{GreenForPartiallyInhomogenHeatC}) again.
 %
 %
 
@@ -758,6 +862,14 @@ BSB B. G. Teubner Verlagsgesellschaft, Leipzig, 1990.
 W. Walter, 
 \emph{Gewöhnliche Differentialgleichungen}, 
 7. ed., Springer-Verlag Berlin Heidelberg, 2000.
+
+\bibitem{bronstein1980taschenbuch}
+I.~N.~Bronstein and K.~A.~Semendjajew,
+\emph{Taschenbuch der Mathematik}
+19., v\"ollig neu bearb.\ Aufl., Gemeinschaftsausgabe Nauka, Moskau /
+BSB B.~G.~Teubner Verlagsgesellschaft, Leipzig, 1979;
+Lizenzausgabe, Verlag Harri Deutsch, Thun und Frankfurt am Main, 1980.
+
 
 \bibitem{Ernst2015}
 O. Ernst,
