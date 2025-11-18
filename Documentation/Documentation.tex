@@ -387,7 +387,7 @@ $\mu $ & $ n \pi$, $ n\in \mathbbm{N}\cup \{ 0 \} $ & $ \{ \mu : (\gamma^2  - \m
 \label{ComparisonBC}
 \end{table}
 An observation of the first eigenvalues for the case $\gamma \not= 0 $ may lead to the assumption that each of the eigenvalues $ \{ 6.4382,\, 9.5264,\, 12.6454,\, 15.7713,\dots \} $ have a distance of approximately $ \pi $ to its nearest neighbor. The following result provides a lower bound for the eigenvalues.
-\begin{lemma}[Lower estimate for the eigenvalues]
+\begin{lemma}[Lower estimate for the eigenvalues] \label{lb_eig_vals}
 In case of $\gamma \not= 0 $ the eigenvalues $\mu_n $ with $ \mu_n > \gamma $ fulfill $ \mu_n \geq n\cdot \pi $, if $ \mu_0 = 0.9602 $.
 \end{lemma}
 
@@ -500,18 +500,14 @@ Since $ \Laplace \Green = \delta $ in the sense of distributions adding a term $
 & + & \int_0^t\!\int_0^1\!\int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t' .
 \end{eqnarray}
 
-\begin{theorem}[Long-time stability of solutions $w$]
-For the eigenfunctions $\phi_{m,n} : \Omega = (0,1)^2 \rightarrow \mathbbm{R} $ there is 
-\begin{equation*} \label{time_stability}
-\mathrm{sup}_{(x,y) \in \Omega }  | \phi_{m,n} (x, y)  | \leq 1.1 + 0.3\gamma^2 ,
-\end{equation*}
-if Robin boundary conditions are imposed on the boundary.
+\begin{theorem}[Long-time stability of solutions $w$] \label{w_stability_robin_bc}
+The solution $w (x,y, t) $ of the homogeneous problem is uniformly bounded for all $(x,y, t) \in (0,1)^2 \times (0,\infty) $, if Robin boundary conditions are imposed on the boundary.
 \end{theorem}
 
 \begin{proof}
 We consider the integral
 \begin{equation*}
-I_N (x,y) = \int_0^t\!\int_0^1\!\int_0^1  \sum_{m,n =1 }^N \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot  f (x',y') a_{m,n } (\tau ) \mathrm{d}x' \mathrm{d}y' \mathrm{d}\tau ,
+I_N (x,y, t) = \int_0^t\!\int_0^1\!\int_0^1  \sum_{m,n =1 }^N \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot  f (x',y') a_{m,n } (\tau ) \mathrm{d}x' \mathrm{d}y' \mathrm{d}\tau ,
 \end{equation*}
 with $ a_{m,n } (\tau ) = H(\tau ) \mathrm{exp} (-\alpha (\mu^2_m + \lambda^2_n) \tau ) $ as amplitude function. Since $\sum_{m,n =1 }^N \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot  f (x',y') $ does not depend on $ \tau $ the integration may be decoupled. % using Fubini's theorem
 We then have
@@ -520,18 +516,33 @@ We then have
 \end{equation*}
 Furthermore, using Theorem \ref{unibound_eigenf_2d} we get
 \begin{eqnarray*}
-\left| I_N (x,y)\right| & = &  \left|\sum_{m,n =1 }^N \frac{1 - \mathrm{e}^{-\alpha (\mu^2_m + \lambda^2_n) t }}{\alpha (\mu^2_m + \lambda^2_n)} \int_0^1\!\int_0^1 \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot  f (x',y')  \mathrm{d}x' \mathrm{d}y' \right| \\
+\left| I_N (x,y, t)\right| & = &  \left|\sum_{m,n =1 }^N \frac{1 - \mathrm{e}^{-\alpha (\mu^2_m + \lambda^2_n) t }}{\alpha (\mu^2_m + \lambda^2_n)} \int_0^1\!\int_0^1 \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot  f (x',y')  \mathrm{d}x' \mathrm{d}y' \right| \\
 & \leq & \left( 1.1 + 0.3\gamma^2 \right) \left| \sum_{m,n =1 }^N \frac{1 - \mathrm{e}^{-\alpha (\mu^2_m + \lambda^2_n) t } }{\alpha (\mu^2_m + \lambda^2_n)} \int_0^1\!\int_0^1 \phi_{m,n} (x', y' ) \cdot  f (x',y')  \mathrm{d}x' \mathrm{d}y' \right| .
 \end{eqnarray*}
+Now, defining $ c_{m,n} = \int_0^1\!\int_0^1 \phi_{m,n} (x', y' ) \cdot  f (x',y')  \mathrm{d}x' \mathrm{d}y' $ note that $ \{ c_{m,n} \}_{m,n \in \mathbbm{N}} $ is a sequence in the sequence space $ \ell^2 $, that means that $ \{ | c_{m,n} | \}_{m,n \in \mathbbm{N}} $ is bounded by a constant $d_1 \in \mathbbm{R} $. We then have
+\begin{eqnarray*}
+\sum_{m,n =1 }^N \frac{ | c_{m,n} | }{\alpha (\mu^2_m + \lambda^2_n)} & \leq & d_1 \sum_{m,n =1 }^N \frac{ 1 }{\alpha (\mu^2_m + \lambda^2_n)} \\
+& \leq & d_1 \sum_{m,n =1 }^N \frac{ 1 }{\alpha (m^2 +n^2 )},
+\end{eqnarray*}
+the last inequality as a consequence of Lemma \ref{lb_eig_vals}.
+Furthermore, the right hand side of the last inequality is the partial sum of an absolutely convergent series, i.e. $ \{ 1 / ( m^2 +n^2 ) \} \in \ell^1 $ with limit $d_2 $, and
+\begin{eqnarray*}
+& & \left| \sum_{m,n =1 }^N \frac{1 }{\alpha (\mu^2_m + \lambda^2_n)} \int_0^1\!\int_0^1 \phi_{m,n} (x', y' ) \cdot  f (x',y')  \mathrm{d}x' \mathrm{d}y' \right| \\
+ & \leq & \sum_{m,n =1 }^N \frac{1 }{\alpha (\mu^2_m + \lambda^2_n)} \left| \int_0^1\!\int_0^1  \phi_{m,n} (x', y' ) \cdot  f (x',y')  \mathrm{d}x' \mathrm{d}y' \right| \\
+& \leq & \sum_{m,n =1 }^N \frac{1 }{\alpha (m^2 + n^2)} \left| \int_0^1\!\int_0^1  \phi_{m,n} (x', y' ) \cdot  f (x',y')  \mathrm{d}x' \mathrm{d}y' \right| \\
+& \leq & d_1\cdot d_2 \in \mathbbm{R} .
+\end{eqnarray*}
+Since $ 1 - \mathrm{e}^{-\alpha (\mu^2_m + \lambda^2_n) t } \leq 1 $ we finally have
+\begin{equation*}
+\left| I_N (x,y, t)\right| \leq \left( 1.1 + 0.3\gamma^2 \right) d_1\cdot d_2 ,
+\end{equation*}
+uniformly for all $N$ and all $(x,y) \in (0,1)^2 $.
+That means that the solution $w (x,y, t) $ of the homogeneous problem is uniformly bounded for all $(x,y, t) \in (0,1)^2 \times (0,\infty) $, the statement of the theorem.
 \end{proof}
 
-
-
-
-
-
-
-
+\begin{remark}
+If the homeogenous heat conduction problem is supplemented with homogeneous Neumann boundary conditions the assertion of Theorem \ref{w_stability_robin_bc} is not true: It can be shown that the solutions $w$ will tend to infinity as the time $t$ goes to infinity.
+\end{remark}
 
 \subsection{The inhomogeneous Heat Conduction Problem}
 The full inhomogenous heat conduction problem is given by
@@ -541,7 +552,11 @@ The full inhomogenous heat conduction problem is given by
 \gamma ( \uTemp - \uTemp_{\mathrm{amb}} ) + \frac{\partial \uTemp }{\partial \nu } &=& 0 \text{ on } \partial \Omega  \label{inhomogenBC} .
 \end{eqnarray}
 We assume $ \uTemp_{\mathrm{amb}} $ is a constant. With $ \wTemp = \uTemp - \uTemp_{\mathrm{amb}} $ and $ \wTemp_0 = \uTemp_0 - \uTemp_{\mathrm{amb}} $ a solution of the problem $ \partial \wTemp / \partial t = \alpha \Laplace \wTemp + f $ and the conditions (\ref{homogenIC}, \ref{homogenBC}) can be constructed via (\ref{GreenForPartiallyInhomogenHeatC}). Vice versa, a solution of the inhomogeneous problem (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}) can be defined via $ \uTemp = \wTemp + \uTemp_{\mathrm{amb}} $ where $ \wTemp $ is constructed by (\ref{GreenForPartiallyInhomogenHeatC}) again.
-%
+
+The following important variant of Theorem \ref{w_stability_robin_bc} is straightforward:
+\begin{theorem}[Long-time stability of solutions $u$ of (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC})] \label{u_stability_robin_bc}
+The solution $u (x,y, t) $ of the inhomogeneous problem (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}) is uniformly bounded for all $(x,y, t) \in (0,1)^2 \times (0,\infty) $.
+\end{theorem}
 %
 
 \section{Finite Difference Method}

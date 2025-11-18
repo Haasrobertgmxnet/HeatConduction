@@ -1,12 +1,35 @@
 ﻿import os
+from re import U
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 import numpy as np
 import time
 
+from result_data import result_data
+from result_frames import result_frames
+
+from calculate_modes import func, solve, fplot
+
+def inner_L2(f, g, a=0.0, b=1.0, n=10000):
+    x = np.linspace(a, b, n, endpoint=True)
+    fx = f(x)
+    gx = g(x)
+    # komplexer Fall: Konjugation nicht vergessen
+    return np.trapz(fx * np.conjugate(gx), x)
+
+def norm_L2(f, a=0.0, b=1.0, n=10000):
+    return np.sqrt(np.real(inner_L2(f, f, a, b, n)))
+
+def I_closed(mode, gamma):
+    m = np.asarray(mode, dtype=float)
+    s2_over_4m = np.where(m == 0.0, 0.5, np.sin(2*m)/(4*m))  # lim_{m->0} = 1/2
+    return (0.5 - s2_over_4m
+            + (1.0/(2*gamma))*(1 - np.cos(2*m))
+            + (m**2/gamma**2)*(0.5 + s2_over_4m))
+
 class GreenFunctionSolver:
-    def __init__(self, alpha, bc, Lx=1.0, Ly=1.0, M=20, N=20):
+    def __init__(self, alpha, ibvp, Lx=1.0, Ly=1.0, M=20, N=20):
         """
         Initialize the Green function solver for a 2D heat equation with Robin-type boundary conditions.
 
@@ -22,23 +45,29 @@ class GreenFunctionSolver:
         M, N : int, optional
             Number of eigenmodes in x and y (truncation size). (Currently fixed to stored arrays.)
         """
-        print(f"Gesuchter Wert: {0.48503638*204/214}")
         self.alpha = alpha
-        self.apply_bc = bc
+        self.ibvp = ibvp
 
-        # Precomputed eigenvalues for separated Laplacian eigenmodes
-        self.eig_vals = np.array([ 0.96018887, 3.43101431, 6.43819715, 9.52961783, 12.64540952,
-         15.77134816, 18.90244679, 22.03652001, 25.17246196, 28.30965385, 31.44772266,
-         34.58643025, 37.72561748, 40.86517399, 44.00502085, 47.14510012, 50.2853683,
-         53.42579212, 56.56634566])
+        # Eigenvalues for separated Laplacian eigenmodes
+        self.eig_vals = (solve(func, cutoff=5001, coarse_points=10_000, refine=True, refine_points=1_000, x_min=0, x_max=2000)[1:])
+        print(f"Shape of eig_vals: {self.eig_vals.shape}")
 
         # Scaling coefficients corresponding to eigenmodes
-        self.scal = np.array([0.48503638, 0.1087893,  0.04307502, 0.0239897, 0.01570866,
-         0.01128258, 0.00860051, 0.00683343, 0.00559754, 0.0046936, 0.00400903,
-         0.00347597, 0.00305132, 0.00270657, 0.00242215, 0.00218426, 0.00198289,
-         0.00181066, 0.00166199])
+        self.scal = np.array([np.sqrt(1.0/I_closed(mode, 0.5)) for mode in self.eig_vals])
 
-    def phi(self, eig_vals, x):
+        # resolution for projection grid
+        self.resolution = 5001
+
+        # use filter
+        self.use_filter = True
+
+        # use Clenshaw-Curtis quadrature
+        self.use_clenshaw_curtis = True
+
+        # Fill cache
+        self.prepare_cache()
+
+    def phi(self, x):
         """
         Compute separated spatial eigenfunctions phi_k(x) satisfying the boundary conditions.
 
@@ -60,165 +89,427 @@ class GreenFunctionSolver:
             phi_k(x) = sin(k x) + (k/gamma) * cos(k x),
         where gamma = a / b from the boundary condition.
         """
-        mode = np.atleast_1d(eig_vals)[:, None]
+        mode = np.atleast_1d(self.eig_vals)[:, None]
+        scals = np.atleast_1d(self.scal)[:, None]
         x = np.atleast_1d(x)[None, :]
-        gamma = self.apply_bc.a / self.apply_bc.b
+        gamma = self.ibvp.a / self.ibvp.b
         phi_vals = np.sin(mode * x) + (mode/gamma)*np.cos(mode * x)
 
         debug_ = False
         if not debug_:
-            return phi_vals
+            return scals*phi_vals
         # Diagnostic output if needed
         arg = mode * x
         print(f"Size x {x.size}")
         print(f"Size mode {mode.size}")
         print(f"Size arg {arg.size}")
         print(f"Size phi: {phi_vals.size}")
-        return phi_vals
+        return scals*phi_vals
 
-    def green(self, x, y, x0, y0, tau):
+    def dphi(self, x):
         """
-        Compute the Green function G(x,y,tau; x0,y0) and integrated kernel G_int
-        for the 2D heat equation using truncated separation of variables.
+        Compute the 1st derivative of separated spatial eigenfunctions phi_k(x) satisfying the boundary conditions.
 
         Parameters
         ----------
-        x, y : float or array-like
-            Coordinates where the solution is evaluated. May be scalars or 1D grids.
-        x0, y0 : float or array-like (broadcastable to match x,y evaluation loops)
-            Source coordinates in the domain.
-        tau : float
-            Time difference t - s (always non-negative). Represents heat propagation time.
+        eig_vals : array-like of shape (M,)
+            Eigenvalues k associated with separated Laplace operator modes.
+        x : float or array-like of shape (Nx,) or broadcastable
+            Spatial coordinate(s) where phi is evaluated.
 
         Returns
         -------
-        G : ndarray of shape (len(x), len(y))
-            Green function kernel applied to initial condition.
-        G_int : ndarray of shape (len(x), len(y))
-            Time-integrated Green function for convolution with source term f.
+        dphi_vals : ndarray of shape (M, Nx)
+            Matrix where each row corresponds to dphi_k(x) for one eigenmode.
 
         Notes
         -----
-        Uses a rank-M spectral approximation:
-            G(x,y,t; x0,y0) = sum_{m,n} phi_m(x) phi_m(x0) phi_n(y) phi_n(y0)
-                              * exp(-alpha (k_m^2 + k_n^2) t)
+        Defines mode shapes:
+            phi_k(x) = sin(k x) + (k/gamma) * cos(k x),
+        where gamma = a / b from the boundary condition.
         """
-        if tau < 0:
-            return np.zeros((len(x), len(y)))
+        mode = np.atleast_1d(self.eig_vals)[:, None]
+        scals = np.atleast_1d(self.scal)[:, None]
+        x = np.atleast_1d(x)[None, :]
+        gamma = self.ibvp.a / self.ibvp.b
+        dphi_vals = mode*np.cos(mode * x) - (mode**2/gamma)*np.sin(mode * x)
 
-        eig_vals = self.eig_vals
-        scal = self.scal
+        return scals*dphi_vals
 
-        k = np.atleast_1d(eig_vals)
-
-        xs = ys = np.linspace(0.,1.,20)
-        PHI_x = self.phi(k, xs)
-        PHI_y = self.phi(k, ys)
-        dx = np.mean(np.diff(xs))
-        dy = np.mean(np.diff(ys))
-
-        variant1 = False
-        if variant1:
-            norms_x = np.sqrt(np.sum(PHI_x**2, axis=1)*dx)
-            norms_y = np.sqrt(np.sum(PHI_y**2, axis=1)*dy)
-            scal = 1/norms_x
-
-        PHI_x_norm = self.phi(k, x)*scal[:,None]
-        PHI_x0_norm = self.phi(k, x0)*scal[:,None]
-        PHI_y_norm = self.phi(k, y)*scal[:,None]
-        PHI_y0_norm = self.phi(k, y0)*scal[:,None]
-
-        km2 = k**2
-        ex = self.alpha * (km2[:,None] + km2[None,:])
-        A = np.exp(-ex * tau)
-        A_int = 1/ex*(1-A)
-
-        C = A @ (PHI_y0_norm[:,0][:,None] * PHI_y_norm)
-        D = (PHI_x0_norm[:,0][:,None] * PHI_x_norm)
-        G = D.T @ C
-
-        C_int = A_int @ (PHI_y0_norm[:,0][:,None] * PHI_y_norm)
-        D = (PHI_x0_norm[:,0][:,None] * PHI_x_norm)
-        G_int = D.T @ C_int
-
-        return G, G_int
-
-    def u(self, x, y, t, u0_func, f_func=None):
+    def ddphi(self, x):
         """
-        Compute solution u(x,y,t) using Green function convolution.
-
-        Parameters
-        ----------
-        x, y : array-like
-            Target grid coordinates for evaluating the solution.
-        t : float
-            Time at which solution is evaluated.
-        u0_func : callable u0(x,y)
-            Initial condition function.
-        f_func : callable f(x,y), optional
-            Source term function in the PDE. If None, homogeneous equation assumed.
-
-        Returns
-        -------
-        U : ndarray of shape (len(x), len(y))
-            Solution field at time t.
+        Second derivative of the 1D eigenfunctions phi_k(x).
         """
-        # --- Prepare cache for projections and Base (once) ---
+        mode = np.atleast_1d(self.eig_vals)[:, None]
+        scals = np.atleast_1d(self.scal)[:, None]
+        x = np.atleast_1d(x)[None, :]
+        gamma = self.ibvp.a / self.ibvp.b
+
+        # phi_k(x) = sin(kx) + (k/gamma)*cos(kx)
+        # phi'_k(x) = k cos(kx) - (k^2/gamma) sin(kx)
+        # phi''_k(x) = -k^2 sin(kx) - (k^3/gamma) cos(kx)
+        ddphi_vals = -mode**2 * np.sin(mode * x) - (mode**3/gamma)*np.cos(mode * x)
+
+        return scals * ddphi_vals
+
+    def prepare_cache_(self):
+        """
+        Prepare and cache projection grid and basis evaluations using
+        Clenshaw–Curtis quadrature on Chebyshev–Lobatto nodes.
+        """
+        if hasattr(self, "_proj_cache"):
+            return
+
+        def clenshaw_curtis(n):
+            """
+            Clenshaw–Curtis nodes and weights on [0,1].
+            Correct implementation following Waldvogel (2006).
+            """
+
+            if n < 2:
+                raise ValueError("n must be >= 2")
+
+            N = n - 1
+
+            # Chebyshev-Lobatto nodes on [-1,1]
+            theta = np.pi * np.arange(n) / N
+            x_cheb = np.cos(theta)
+
+            # Map to [0,1]
+            x = 0.5 * (1 - x_cheb)
+
+            # Compute weights
+            w = np.zeros(n)
+            c = np.zeros(n)
+
+            c[0]  = 2
+            c[-1] = 2
+            c[1:-1] = 1
+
+            # cosine transform of c
+            F = np.real(np.fft.ifft(c))
+
+            # Clenshaw–Curtis weights on [-1,1]
+            w_cheb = np.zeros(n)
+            w_cheb[0]      = F[0] / N
+            w_cheb[-1]     = F[0] / N
+            w_cheb[1:-1]   = 2 * F[1:N] / N
+
+            # Map [-1,1] → [0,1]
+            w = 0.5 * w_cheb
+
+            return x, w
+
+        # test of CC quadrature
+        x, w = clenshaw_curtis(256)
+        f = x**2
+        I = np.sum(w * f)
+        print(I)
+        print("CC quadrature of x^2 over [0,1]:", I, " (exact 1/3)")
+
+        # number of projection points
+        n = self.resolution
+
+        # nodes and weights for x and y
+        xs, wx = clenshaw_curtis(n)
+        ys, wy = clenshaw_curtis(n)
+
+        # evaluate eigenfunctions and their derivatives on CC grid
+        phi_x  = self.phi(xs)     # shape (M, n)
+        phi_y  = self.phi(ys)     # shape (M, n)
+        dphi_x = self.dphi(xs)
+        dphi_y = self.dphi(ys)
+
+        # cache everything
+        self._proj_cache = {
+            "xs": xs, "ys": ys,
+            "wx": wx, "wy": wy,
+            "phi_x": phi_x, "phi_y": phi_y,
+            "dphi_x": dphi_x, "dphi_y": dphi_y,
+        }
+
+    def prepare_cache(self):
+        """
+        Prepare and cache projection grid and basis evaluations for performance.
+        """
+        # This method is now integrated into calculate_results for caching.
+         # --- 1) Prepare and cache projection grid and basis evaluations -----------
+        # We create a fixed "reference" grid for projections (Galerkin coefficients).
+        # This is done once and cached for performance.
         if not hasattr(self, "_proj_cache"):
-            xs = np.linspace(0, 1, 101)
-            ys = np.linspace(0, 1, 101)
+            def simpson_weights(n):
+                if (n - 1) % 2 != 0:
+                    raise ValueError("Simpson needs an odd number of points.")
+                w = np.ones(n)
+                w[1:-1:2] = 4
+                w[2:-1:2] = 2
+                return w
+
+            xs = np.linspace(0, 1., self.resolution)   # reference grid in x (size Nx)
+            ys = np.linspace(0, 1., self.resolution)   # reference grid in y (size Ny)
             dx = xs[1] - xs[0]
             dy = ys[1] - ys[0]
+            wx = simpson_weights(len(xs)) * dx / 3.0
+            wy = simpson_weights(len(ys)) * dy / 3.0
+            
+            # We multiply by "scal" to account for normalization factors of the basis.
+            phi_x = self.phi(xs) # shape (M, Nx)
+            phi_y = self.phi(ys) # shape (M, Ny)
 
-            k = self.eig_vals
-            phi_x = self.phi(k, xs) * self.scal[:, None]   # (M, Nx)
-            phi_y = self.phi(k, ys) * self.scal[:, None]   # (M, Ny)
+            dphi_x = self.dphi(xs) # shape (M, Nx)
+            dphi_y = self.dphi(ys) # shape (M, Ny)
 
             self._proj_cache = {
                 "xs": xs, "ys": ys, "dx": dx, "dy": dy,
                 "phi_x": phi_x, "phi_y": phi_y,
+                "dphi_x": dphi_x, "dphi_y": dphi_y,
+                "wx": wx, "wy": wy
             }
 
+            f = xs**2
+            I = np.sum(wx * f)
+            print(I)
+            print("Simpson quadrature of x^2 over [0,1]:", I, " (exact 1/3)")
+
+    def check_orthogonality(self):
+        """
+        Check the orthogonality and normalization of the cached basis functions.
+        """
+        if hasattr(self, "_proj_cache"):
+            phi_x = self._proj_cache["phi_x"]; phi_y = self._proj_cache["phi_y"]
+            wx = self._proj_cache["wx"]; wy = self._proj_cache["wy"]
+            Gx = (phi_x * wx) @ phi_x.T
+            Gy = (phi_y * wy) @ phi_y.T
+            print("‖Gx−I‖∞ =", np.max(np.abs(Gx - np.eye(Gx.shape[0]))))
+            print("‖Gy−I‖∞ =", np.max(np.abs(Gy - np.eye(Gy.shape[0]))))
+
+    def check_pde_residual(self):
+        """
+        Check if cached basis functions approx. solve the 1D eigenvalue ODE
+            phi''(x) + k^2 phi(x) = 0
+        for each mode k.
+        """
+        if not hasattr(self, "_proj_cache"):
+            print("No cache.")
+            return
+
+        xs = self._proj_cache["xs"]
+        ys = self._proj_cache["ys"]
+
+        phi_x   = self.phi(xs)        # (M, Nx)
+        phi_y   = self.phi(ys)        # (M, Ny)
+        ddphi_x = self.ddphi(xs)      # (M, Nx)
+        ddphi_y = self.ddphi(ys)      # (M, Ny)
+
+        lam = self.eig_vals**2        # k^2
+
+        # ODE: phi'' + lambda phi = 0
+        res_x = ddphi_x + lam[:, None] * phi_x
+        res_y = ddphi_y + lam[:, None] * phi_y
+
+        print("‖PDE residual for phi(x)‖∞ =", np.max(np.abs(res_x)))
+        print("‖PDE residual for phi(y)‖∞ =", np.max(np.abs(res_y)))
+
+    def check_boundary_residual(self):
+        """
+        Check if the cached basis functions fulfill the boundary conditions.
+        """
+        if hasattr(self, "_proj_cache"):
+            phi_x = self._proj_cache["phi_x"]; phi_y = self._proj_cache["phi_y"]
+            dphi_x = self._proj_cache["dphi_x"]; dphi_y = self._proj_cache["dphi_y"]
+            bdry_res_x_0 = self.ibvp.a * phi_x[:, 0] - self.ibvp.b * dphi_x[:, 0]
+            bdry_res_x_1 = self.ibvp.a * phi_x[:, -1] + self.ibvp.b * dphi_x[:, -1]
+            bdry_res_y_0 = self.ibvp.a * phi_y[:, 0] - self.ibvp.b * dphi_y[:, 0]
+            bdry_res_y_1 = self.ibvp.a * phi_y[:, -1] + self.ibvp.b * dphi_y[:, -1]
+            print(f"‖Boundary residuals for phi(x)‖∞ = {np.max(np.abs(bdry_res_x_0))}, {np.max(np.abs(bdry_res_x_1))}")
+            print(f"‖Boundary residuals for phi(y)‖∞ = {np.max(np.abs(bdry_res_y_0))}, {np.max(np.abs(bdry_res_y_1))}")
+
+    def check_projection(self):
+        xs = self._proj_cache["xs"]
+        wx = self._proj_cache["wx"]
+        phi = self._proj_cache["phi_x"]      # shape (M, n)
+
+        # f = phi_1(x)
+        f = phi[1, :]                        # zweite Mode (Index 1)
+
+        # Projektion auf alle Basisfunktionen:
+        coeffs = (phi * wx) @ f              # (M,)
+
+        print("coeffs:", coeffs)
+        print("max |coeffs|:", np.max(np.abs(coeffs)))
+        print("coeff[1]:", coeffs[1])
+
+        xs = self._proj_cache["xs"]
+        ys = self._proj_cache["ys"]
+        wx = self._proj_cache["wx"]
+        wy = self._proj_cache["wy"]
+        phi_x = self._proj_cache["phi_x"]
+        phi_y = self._proj_cache["phi_y"]
+
+        # phi1(x), phi1(y):
+        phi1_x = phi_x[1, :]          # (Nx,)
+        phi1_y = phi_y[1, :]          # (Ny,)
+
+        X0, Y0 = np.meshgrid(xs, ys, indexing="ij")
+        F = np.outer(phi1_x, phi1_y)  # F(x_i,y_j) = φ1(x_i)φ1(y_j)
+
+        Cf = (phi_x * wx) @ F @ (phi_y * wy).T  # (M,M)
+
+        print("Cf[1,1] ≈", Cf[1,1])
+        print("max |Cf[m,n]|, m!=1,n!=1:", np.max(np.abs(Cf - np.eye(Cf.shape[0])[1,1])))
+
+    def check_cached_phis(self):
+        """
+        Check if the projection cache is prepared.
+        """
+        self.prepare_cache()
+        self.check_orthogonality()
+        self.check_pde_residual()
+        self.check_boundary_residual()
+        self.check_projection()
+
+    def validate_projected_f(self, f_func):
+        """
+        Validate the projection of the source term f(x,y) onto the modal basis.
+        """
+        self.prepare_cache()
         xs = self._proj_cache["xs"]; ys = self._proj_cache["ys"]
-        dx = self._proj_cache["dx"]; dy = self._proj_cache["dy"]
+        wx = self._proj_cache["wx"]; wy = self._proj_cache["wy"]
         phi_x = self._proj_cache["phi_x"]; phi_y = self._proj_cache["phi_y"]
+        X0, Y0 = np.meshgrid(xs, ys, indexing="ij")
+        F = f_func(X0, Y0)          # preferred signature: f(x,y)
+        Cf = (phi_x * wx) @ F @ (phi_y * wy).T # (M, M)
+        # print(f"Cf: {Cf}")
 
-        U_ofs = self.apply_bc.c / self.apply_bc.a
+        # Reconstruct f from Cf
+        F_recon = phi_x.T @ Cf @ phi_y  # (Nx, Ny)
+        err = F - F_recon
+        print("‖f - f_recon‖_mean ≈", np.mean(err**2)**0.5)
+
+    def calculate_results(self, x, y, t, u0_func, f_func=None, return_u_derivs=True):
+        """
+        Compute u(x,y,t) and optionally du/dt(x,y,t) for the 2D heat equation
+        (inhomogeneous, Robin/Neumann BC) via eigenfunction expansion.
+
+        Parameters
+        ----------
+        x, y : 1D arrays
+            Target coordinates where the solution is evaluated.
+        t : float
+            Time of evaluation.
+        u0_func : callable u0(x,y)
+            Initial condition at t=0.
+        f_func : callable f(x,y) or f(x,y,t), optional
+            (Time-independent) source term. If signature is f(x,y,t), t=0 will be used
+            for projection because we assume time-independence in the modal ODEs.
+        return_dudt : bool
+            If True, return both (U, dUdt). If False, return only U.
+
+        Returns
+        -------
+        Nothing. Results are stored in self.result_data
+        """
+
+        # --- 1) Prepare and cache projection grid and basis evaluations -----------
+        self.prepare_cache()
+
+        xs = self._proj_cache["xs"]; ys = self._proj_cache["ys"]
+        try:
+            dx = self._proj_cache["dx"]; dy = self._proj_cache["dy"]
+        except:
+            pass
+        phi_x = self._proj_cache["phi_x"]; phi_y = self._proj_cache["phi_y"]
+        dphi_x = self._proj_cache["dphi_x"]; dphi_y = self._proj_cache["dphi_y"]
+        wx = self._proj_cache["wx"]; wy = self._proj_cache["wy"]
+
+        # --- 2) Static offset due to boundary conditions --------------------------
+        # For many Robin/Neumann BC setups the stationary solution is constant.
+        # We subtract it before projecting and add it back after reconstruction.
+        U_ofs = self.ibvp.u_amb()
+
+        # --- 3) Build the 2D spectral operator L = λ_m + λ_n ---------------------
+        # Each 2D mode (m,n) decays like exp(-alpha * (λ_m + λ_n) * t).
         k = self.eig_vals
-        lam = k**2
-        L = (lam[:, None] + lam[None, :])                  # (M, M)
+        lam = k**2                                     # shape (M,)
+        L = (lam[:, None] + lam[None, :])              # shape (M, M)
 
-        # --- projection of the initial state (caching once) ---
+        # --- 4) Project initial data onto modal basis -----------------------------
+        C0_is_zero= False
         if not hasattr(self, "_C0"):
-            X0, Y0 = np.meshgrid(xs, ys, indexing="ij")
-            F0 = (u0_func(X0, Y0) - U_ofs)                  # (Nx, Ny)
-            self._C0 = phi_x @ F0 @ phi_y.T * dx * dy       # (M, M)
+            X0, Y0 = np.meshgrid(xs, ys, indexing="ij")        # X0: (Nx,Ny), Y0: (Nx,Ny)
+            F0 = (u0_func(X0, Y0) - U_ofs)                     # (Nx, Ny)
+            if np.allclose(F0, 0.0):
+                print("Initial condition is zero everywhere.")
+                C0_is_zero= True
+                self._C0 = 0.0
+            # Matrix multiplications (`@`) are standard NumPy matmul:
+            #   phi_x @ F0 @ phi_y.T  ~  ∫∫ phi_m(x) * F0(x,y) * phi_n(y) dx dy
+            else:
+                print("Projecting initial condition onto modal basis.")
+                self._C0 = (phi_x * wx) @ F0 @ (phi_y * wy).T # (M, M)
 
-        # --- projection to heat source (f time-independent) (caching once) ---
+        # --- 5) Project static source term f(x,y) if present ----------------------
+        # We assume f is time-independent for the closed-form solution used here.
         if f_func is not None and not hasattr(self, "_Cf_static"):
             X0, Y0 = np.meshgrid(xs, ys, indexing="ij")
             try:
-                F = f_func(X0, Y0)                          # preferred: f(x,y)
+                F = f_func(X0, Y0)          # preferred signature: f(x,y)
             except TypeError:
-                F = f_func(X0, Y0, 0.0)                     # if signature f(x,y,t)
-            self._Cf_static = phi_x @ F @ phi_y.T * dx * dy # (M, M)
+                F = f_func(X0, Y0, 0.0)     # fallback if signature is f(x,y,t)
+            self._Cf_static = (phi_x * wx) @ F @ (phi_y * wy).T # (M, M)
 
-        # --- time factors ---
-        decay = np.exp(-self.alpha * L * t)                 # (M, M)
+        # If no source was provided, treat it as zero in the modal equations.
+        Cf = getattr(self, "_Cf_static", 0.0)
 
-        C = self._C0 * decay                                # Anfangsanteil
-
+        # --- 6) Time evolution of modal coefficients C(t) -------------------------
+        # Closed-form from the linear ODE for each mode:
+        #   C(t) = C0 * exp(-alpha*L*t) + Cf * (1 - exp(-alpha*L*t)) / (alpha*L)
+        decay = np.exp(-self.alpha * L * t)                     # (M, M)
+        C = self._C0 * decay
         if f_func is not None:
-            # closed form for constant f(x,y):
-            # integral_0^t e^{-α L (t-s)} ds = (1 - e^{-α L t}) / (α L)
-            C += self._Cf_static * (1.0 - decay) / (self.alpha * L + 1e-300)
+            # small epsilon avoids division by zero for pure zero-modes of L
+            C += Cf * (1.0 - decay) / (self.alpha * L + 1e-300)
 
-        # --- reconstruction at target grid ---
-        phi_x_eval = self.phi(k, x) * self.scal[:, None]    # (M, Nx_eval)
-        phi_y_eval = self.phi(k, y) * self.scal[:, None]    # (M, Ny_eval)
-        U = phi_x_eval.T @ C @ phi_y_eval                   # (Nx_eval, Ny_eval)
+        # --- 7) Time derivative of the coefficients dC/dt -------------------------
+        # Using the ODE directly: dC/dt = -alpha * L * C + Cf
+        if return_u_derivs:
+            dCdt = -self.alpha * L * C + Cf                     # (M, M)
 
-        return U_ofs + U
+        # --- 8) Reconstruct on the user-specified evaluation grid -----------------
+        # Evaluate basis functions at the requested target points x,y.
+        phi_x_eval = self.phi(x) # (M, Nx_eval)
+        phi_y_eval = self.phi(y) # (M, Ny_eval)
+        dphi_x_eval = self.dphi(x) # (M, Nx_eval)
+        dphi_y_eval = self.dphi(y) # (M, Ny_eval)
+
+        # F_proj = phi_x_eval.T @ Cf @ phi_y_eval  # (Nx,Ny)
+
+        #  err = f_func(x,y) - F_proj
+        # print("‖f - f_proj‖_mean ≈", np.mean(err**2)**0.5)
+
+        # print(f"Cf: {Cf}")
+
+        # Before reconstruction, we can apply optional filtering to C to
+        k = np.arange(len(self.eig_vals))
+        kc, p = int(0.85*len(k)), 8
+        sigma = np.exp(- (np.maximum(k-kc,0) / max(1, len(k)-kc))**p )
+        S = np.diag(sigma)
+
+        # Assemble the fields: U = Uofs + Phi_x^T C Phi_y, dUdt = Phi_x^T dCdt Phi_y
+        u = phi_x_eval.T @ C @ phi_y_eval                       # (Nx_eval, Ny_eval)
+        if self.use_filter:
+            # Now filter C
+            C_filt = S @ C @ S
+            u = phi_x_eval.T @ C_filt @ phi_y_eval
+
+        u = U_ofs + u
+        u_t = phi_x_eval.T @ dCdt @ phi_y_eval
+        u_x = dphi_x_eval.T @ C @ phi_y_eval
+        u_y = phi_x_eval.T @ C @ dphi_y_eval
+        u_xx = (phi_x_eval.T*lam) @ C @ phi_y_eval
+        u_yy = phi_x_eval.T @ C @ (phi_y_eval.T*lam).T
+
+        self.result_data = result_data(u, u_t, u_x, u_y, u_xx, u_yy)
 
     def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1):
         """
@@ -255,23 +546,32 @@ class GreenFunctionSolver:
         lx, ly = frame.lx, frame.ly
         x = np.linspace(0, lx, nx)
         y = np.linspace(0, ly, ny)
+        X, Y = np.meshgrid(x, y, indexing='xy')
+        xy = np.column_stack([X.ravel(), Y.ravel()])
+        f = ibvp.heat_source(xy[:,0], xy[:,1])
+        f = f.reshape(ny, nx)
 
         solver = GreenFunctionSolver(ibvp.alpha, ibvp, 1.0, 1.0)
+        solver.check_cached_phis()
+        solver.validate_projected_f(ibvp.heat_source)
 
-        frames = [ibvp.initial_u,]
-        u_means = []
-        
+        u_frames = [result_data(ibvp.initial_u(x,y))]
+
+        u0 =ibvp.initial_u(xy[:,0], xy[:,1])
+        u0 = u0.reshape(ny, nx)
+        u_frames = [result_data(u0)]
+
         for n_frame in range(n_frames):
             start = time.time()
             tval = frame.lt*(1+n_frame)/n_frames
-            u = solver.u(x,y,tval,ibvp.initial_u,ibvp.heat_source)
-            frames.append(u)
-            u_mean = u.mean()
-            u_min = u.min()
-            u_max = u.max()
+            solver.calculate_results(x,y,tval,ibvp.initial_u,ibvp.heat_source)
+            u_frames.append(solver.result_data)
+            u = solver.result_data.u
             min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
             max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
-            u_means.append(u_mean)
-            print(f"Frame {tval:.2f}: mean={u_mean:.6f}, min={u_min:.6f} @ {min_idx}, max={u_max:.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
+            print(f"Frame {tval:.2f}: mean={u.mean():.6f}, min={u.min():.6f} @ {min_idx}, max={u.max():.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
 
-        return frames, u_means
+        result = result_frames(u_frames, f, has_u_t= True, has_derivs= True, has_laplacian= True)
+        return result
+
+

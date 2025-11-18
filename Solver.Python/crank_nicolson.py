@@ -6,6 +6,8 @@ import scipy.sparse.linalg as spla
 import matplotlib.pyplot as plt
 
 from boundary_conditions import HeatBoundaryCondition
+from result_data import result_data
+from result_frames import result_frames
 
 # ----------------------------------------------------
 # Debugging and diagnostic helper for matrix structure
@@ -224,8 +226,8 @@ class HeatCrankNicolsonSolver():
             (self.ny - 1) * self.nx,
             self.ny * self.nx - 1
         ]
-        for idx in corner_indices:
-            self.q_total[idx] = 0.5 * (qx_2d[idx] + qy_2d[idx])
+        #for idx in corner_indices:
+        #    self.q_total[idx] = 0.5 * (qx_2d[idx] + qy_2d[idx])
 
     def crank_nicolson_matrices(self, kappa):
         """
@@ -308,9 +310,14 @@ class HeatCrankNicolsonSolver():
         """
         Perform nt Crank-Nicolson time steps.
         """
+        u_t = None
         for _ in range(nt):
+            u_old = u
             u = self.step(u, f)
-        return u
+            u_t = (u - u_old) / self.dt
+        self.current_u = u
+        self.current_u_t = u_t
+        return u, u_t
 
     def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1):
         """
@@ -355,7 +362,7 @@ class HeatCrankNicolsonSolver():
         X, Y = np.meshgrid(x, y, indexing='xy')
         X2, Y2 = np.meshgrid(x, y, indexing='xy')
         u0 = ibvp.initial_u(X2.ravel(), Y2.ravel()).reshape((ny, nx), order='C')
-        h = ibvp.heat_source(X2.ravel(), Y2.ravel()).reshape((ny, nx), order='C')
+        f = ibvp.heat_source(X2.ravel(), Y2.ravel()).reshape((ny, nx), order='C')
         robin =  HeatBoundaryCondition(ibvp.a, ibvp.b, ibvp.c).to_tuple_x()
 
         dx, dy = lx / (nx-1), ly / (ny-1)
@@ -366,22 +373,18 @@ class HeatCrankNicolsonSolver():
 
         u_corr = solver.c / solver.a
         u_corr = 0
-        frames = [u0.copy()]
-        w = u0.copy()
-        u_means = []
+        u_frames = [result_data(u0.copy())]
+        u = u0.copy()
 
         for n_frame in range(n_frames):
             start = time.time()
-            w = solver.n_steps(w, h, t_steps_per_frame)
-            u = w
-            frames.append(u.copy())
-            u_mean = u.mean()
-            u_min = u.min()
-            u_max = u.max()
+            u, u_t = solver.n_steps(u, f, t_steps_per_frame)
+            u_frames.append(result_data(u, u_t))
+
             min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
             max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
-            u_means.append(u_mean)
             tval = (n_frame + 1) * (lt / n_frames)
-            print(f"Frame {tval:.2f}: mean={u_mean:.6f}, min={u_min:.6f} @ {min_idx}, max={u_max:.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
+            print(f"Frame {tval:.2f}: mean={u.mean():.6f}, min={u.min():.6f} @ {min_idx}, max={u.max():.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
         
-        return frames, u_means
+        result = result_frames(u_frames, f, has_u_t= False, has_derivs= False, has_laplacian= False)
+        return result

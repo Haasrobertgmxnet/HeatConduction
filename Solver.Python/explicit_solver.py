@@ -1,48 +1,46 @@
 ﻿import numpy as np
-from numba import njit
-from boundary_conditions import HeatBoundaryCondition
 import time
 
-@njit
-def step_numba(u, lamx, lamy, dt, f):
-    """
-    Perform one explicit Euler update step for the 2D heat equation using finite differences.
+from boundary_conditions import HeatBoundaryCondition
+from result_data import result_data
+from result_frames import result_frames
 
+def D2_x(u, dx=1.0):
+    """
+    Second derivative in x direction
     Parameters
     ----------
     u : ndarray of shape (nx, ny)
-        Current temperature field.
-    lamx, lamy : float
-        Diffusion CFL factors alpha*dt/dx^2 and alpha*dt/dy^2.
-    dt : float
-        Time step size.
-    f : ndarray of shape (nx, ny)
-        Source term evaluated on grid.
+        2D scalar field.
+    dx, dy : float
+        Grid spacing in x direction.
 
     Returns
     -------
-    u_new : ndarray of shape (nx, ny)
-        Updated temperature field at next time step.
-
-    Notes
-    -----
-    Boundary values are not updated here. They must be applied externally.
+    ndarray of shape (nx-2, ny-2)
+        2D field of all second derivatives in in x direction.
     """
-    nx, ny = u.shape
-    u_new = u.copy()
-    for i in range(1, nx-1):
-        for j in range(1, ny-1):
-            u_new[i, j] = (
-                u[i, j]
-                + lamx * (u[i+1, j] - 2*u[i, j] + u[i-1, j])
-                + lamy * (u[i, j+1] - 2*u[i, j] + u[i, j-1])
-                - dt * f[i, j]
-            )
-    return u_new
+    return (u[2:, 1:-1] - 2*u[1:-1, 1:-1] + u[:-2, 1:-1])/dx
 
+def D2_y(u, dy = 1.0):
+    """
+    Second derivative in y direction
+    Parameters
+    ----------
+    u : ndarray of shape (nx, ny)
+        2D scalar field.
+    dx, dy : float
+        Grid spacing y direction.
+
+    Returns
+    -------
+    ndarray of shape (nx-2, ny-2)
+        2D field of all second derivatives in in y direction.
+    """
+    return (u[1:-1, 2:] - 2*u[1:-1, 1:-1] + u[1:-1, :-2])/dy
 
 class HeatExplicitSolver():
-    def __init__(self, alpha, dx, dy, dt, bc, use_numba = False):
+    def __init__(self, alpha, dx, dy, dt, bc):
         """
         Explicit finite difference heat solver (Euler forward in time).
 
@@ -66,8 +64,10 @@ class HeatExplicitSolver():
         self.dx = dx
         self.dy = dy
         self.apply_bc = bc
-        self.use_numba = use_numba
-        print(f"alp: {alpha:.5}")
+        self.current_D2_x = None
+        self.current_D2_y = None
+        self.current_u = None
+        self.current_pde_loss = None
 
     def check_stability(self):
         """
@@ -100,12 +100,12 @@ class HeatExplicitSolver():
         """
         if f is None:
             f = 0*u
-        if self.use_numba:
-            return step_numba(u, self.lamx, self.lamy, self.dt, f)
         u_new = u.copy()
+        self.current_D2_x = D2_x(u)
+        self.current_D2_y = D2_y(u)
         u_new[1:-1, 1:-1] = (u[1:-1, 1:-1]
-        + self.lamx * (u[2:, 1:-1] - 2*u[1:-1, 1:-1] + u[:-2, 1:-1])
-        + self.lamy * (u[1:-1, 2:] - 2*u[1:-1, 1:-1] + u[1:-1, :-2]) + self.dt*f[1:-1, 1:-1])
+        + self.lamx * self.current_D2_x
+        + self.lamy * self.current_D2_y + self.dt*f[1:-1, 1:-1])
         return u_new
 
     def n_steps(self, u, f = None, nt= 1):
@@ -126,12 +126,21 @@ class HeatExplicitSolver():
         u : ndarray (nx, ny)
             Field after nt steps.
         """
+        pde_res = None
+        u_t = None
         for _ in range(nt):
+            u_old = u
             u = self.step(u,f)
             u = self.apply_bc(u, self.dx, self.dy)
-        return u
+            u = self.step(u, f)
+            u_t = (u - u_old) / self.dt
+            pde_res =  (self.lamx * self.current_D2_x + self.lamy * self.current_D2_y + self.dt*f[1:-1, 1:-1] - (u[1:-1, 1:-1] - u_old[1:-1, 1:-1]))/self.dt
 
-    def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1, use_numba= False):
+        self.current_u = u
+        self.current_pde_loss = pde_res
+        return u, u_t
+
+    def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1):
         """
         High-level time simulation pipeline for producing successive solution frames.
 
@@ -175,30 +184,26 @@ class HeatExplicitSolver():
         xy = np.column_stack([X.ravel(), Y.ravel()])
         u0 =ibvp.initial_u(xy[:,0], xy[:,1])
         u0 = u0.reshape(ny, nx)
-        h = ibvp.heat_source(xy[:,0], xy[:,1])
-        h = h.reshape(ny, nx)
+        f = ibvp.heat_source(xy[:,0], xy[:,1])
+        f = f.reshape(ny, nx)
 
         neumann_bc = HeatBoundaryCondition(ibvp.a, ibvp.b, ibvp.c)
         dx, dy = lx/(nx-1), ly/(ny-1)
-        solver = HeatExplicitSolver(ibvp.alpha, dx, dy, dt, neumann_bc.apply, use_numba)
+        solver = HeatExplicitSolver(ibvp.alpha, dx, dy, dt, neumann_bc.apply)
         if not solver.check_stability():
             print("CFL condition violated")
 
-        frames = [u0,]
-        u_means = []
+        u_frames = [result_data(u0)]
         u = u0.copy()
         for n_frame in range(n_frames):
             start = time.time()
             tval = frame.lt*(1+n_frame)/n_frames
-            u = solver.n_steps(u, h, t_steps_per_frame)
-            frames.append(u)
-            u_mean = u.mean()
-            u_min = u.min()
-            u_max = u.max()
+            u, u_t = solver.n_steps(u, f, t_steps_per_frame)
+            u_frames.append(result_data(u, u_t))
             min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
             max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
-            u_means.append(u_mean)
             tval = (n_frame + 1) * (frame.lt / n_frames)
-            print(f"Frame {tval:.2f}: mean={u_mean:.6f}, min={u_min:.6f} @ {min_idx}, max={u_max:.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
+            print(f"Frame {tval:.2f}: mean={u.mean():.6f}, min={u.min():.6f} @ {min_idx}, max={u.max():.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
 
-        return frames, u_means
+        result = result_frames(u_frames, f, has_u_t= False, has_derivs= False, has_laplacian= False)
+        return result

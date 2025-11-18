@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 import time
 import numpy as np
+
+from result_data import result_data
+from result_frames import result_frames
 from comparison import compare_trained
 
 class HeatPINNSolver():
@@ -12,7 +15,8 @@ class HeatPINNSolver():
     This solver assumes that a model has already been trained and saved to disk.
     It does not perform training; it only loads and evaluates the neural network.
     """
-    def __init__(self):
+    def __init__(self, dt = 1.0):
+        self.dt = dt
         pass
 
     def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1):
@@ -103,10 +107,11 @@ class HeatPINNSolver():
 
         # Compute initial frame
         u0 = ibvp.initial_u(Xv, Yv).detach().cpu().reshape(frame.ny, frame.nx).numpy()
-        u_frames = [u0]
-        u_means = []
+        f = ibvp.heat_source(Xv, Yv).detach().cpu().reshape(frame.ny, frame.nx).numpy()
+        u_frames = [result_data(u0)]
 
         # Evaluate model at requested times
+        dt = 1e-8
         with torch.no_grad():
             for n_frame in range(n_frames):
                 start = time.time()
@@ -115,16 +120,15 @@ class HeatPINNSolver():
                 yv = Yv.unsqueeze(1)
                 tv = torch.full_like(Xv, tval).unsqueeze(1)
                 u = model(xv, yv, tv).reshape(frame.ny, frame.nx).cpu().numpy()
-                u_frames.append(u)
-                u_mean = u.mean()
-                u_min = u.min()
-                u_max = u.max()
+                u2 = u - model(xv, yv, tv + dt).reshape(frame.ny, frame.nx).cpu().numpy()
+                u_t = (u2 - u) / dt
+                u_frames.append(result_data(u, u_t))
                 min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
                 max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
-                u_means.append(u_mean)
-                print(f"Frame {tval:.2f}: mean={u_mean:.6f}, min={u_min:.6f} @ {min_idx}, max={u_max:.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
+                print(f"Frame {tval:.2f}: mean={u.mean():.6f}, min={u.min():.6f} @ {min_idx}, max={u.max():.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
 
-        return u_frames, u_means
+        result = result_frames(u_frames, f, has_u_t= False, has_derivs= False, has_laplacian= False)
+        return result
 
 
 # ------------------------------------------------------------

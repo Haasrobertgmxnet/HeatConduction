@@ -1,4 +1,6 @@
 ﻿import os
+
+# import frame_data
 # Limit multi-threading to keep computations deterministic and avoid CPU overload
 os.environ["OMP_NUM_THREADS"] = "4"
 os.environ["OPENBLAS_NUM_THREADS"] = "4"
@@ -17,39 +19,37 @@ from green_function import GreenFunctionSolver
 from frame_data import frame1, frame2
 from ibvp_data import ibvp1
 from plot_tools import anim_slide, single_plot
+from calculate_modes import fplot
 
+from result_data import result_data
+from result_frames import result_frames
 
 # -------------------------------------------------------------------------
 # PDE Residual Computation
 # -------------------------------------------------------------------------
-def compute_pde_residual(u_frames, frame, alpha):
+def compute_pde_residual(u_frames, u_t_frames, frame, alpha, f = None):
     """
     Computes PDE residuals R = u_t - α∇²u (finite difference approximation).
     u_frames: list of 2D arrays (temperature fields over time)
     """
     dx = frame.dx()
     dy = frame.dy()
-    dt = frame.dt()
+    # dt = frame.dt()
 
     residuals = []
     mean_residuals = []
 
     for n in range(1, len(u_frames)-1):
-        u_prev, u, u_next = u_frames[n-1], u_frames[n], u_frames[n+1]
+        u_t = (u_t_frames[n])[1:-1,1:-1]
 
-        # Central time derivative
-        try:
-            u_t = (u_next - u_prev) / (2*dt)
-        except:
-            print(f"Error in computing u_t at step {n}")
-            u_t = (u_next - u) / dt
-
-        # Laplace operator with periodic extension handling via np.roll
-        u_xx = (np.roll(u, -1, axis=1) - 2*u + np.roll(u, 1, axis=1)) / dx**2
-        u_yy = (np.roll(u, -1, axis=0) - 2*u + np.roll(u, 1, axis=0)) / dy**2
+        # Laplace operator
+        u_xx = (u_frames[n][2:, 1:-1] - 2*u_frames[n][1:-1, 1:-1] + u_frames[n][:-2, 1:-1]) / dx**2
+        u_yy = (u_frames[n][1:-1, 2:] - 2*u_frames[n][1:-1, 1:-1] + u_frames[n][1:-1, :-2]) / dy**2
         lap_u = u_xx + u_yy
 
-        R = u_t - alpha * lap_u
+        if f is None:
+            f = 0*u_t
+        R = np.abs(u_t - alpha * lap_u -f[1:-1,1:-1])
         residuals.append(R)
         mean_residuals.append(np.mean(R))
 
@@ -67,15 +67,15 @@ def boundary_residual(u, frame, k, h, u_amb):
     dx = frame.dx()
     dy = frame.dy()
 
-    du_dx_left   = -(u[:, 1] - u[:, 0]) / dy
-    du_dx_right  = (u[:, -1] - u[:, -2]) / dy
-    du_dy_bottom = -(u[1, :] - u[0, :]) / dx
-    du_dy_top    = (u[-1, :] - u[-2, :]) / dx
+    du_dx_left   = -(u[1, : ] - u[0, :]) / dx
+    du_dx_right  = (u[-1, : ] - u[-2, :]) / dx
+    du_dy_bottom = -(u[:, 1] - u[:, 0]) / dy
+    du_dy_top    = (u[:, -1] - u[:, -2]) / dy
 
-    R_left   = k * du_dx_left   + h * u[:, 0]   - h * u_amb
-    R_right  = k * du_dx_right  + h * u[:, -1]  - h * u_amb
-    R_bottom = k * du_dy_bottom + h * u[0, :]   - h * u_amb
-    R_top    = k * du_dy_top    + h * u[-1, :]  - h * u_amb
+    R_left = k * du_dx_left   + h * u[0, :]   - h * u_amb
+    R_right = k * du_dx_right  + h * u[-1, :]  - h * u_amb
+    R_bottom = k * du_dy_bottom + h * u[:, 0]   - h * u_amb
+    R_top = k * du_dy_top    + h * u[:, -1]  - h * u_amb
 
     return R_left**2, R_right**2, R_bottom**2, R_top**2
 
@@ -95,25 +95,64 @@ class CaseData:
         self.marker = marker
         self.markersize = markersize
 
+        self.results = None
+
+        # self.frame_data = None
         self.u_frames = None
+        # self.u_t_frames = None
+        # self.lap_frames = None
         self.u_means = None
+        self.pde_res = None
         self.R_pde_means = None
         self.R_left_means = None
         self.R_right_means = None
         self.R_bottom_means = None
         self.R_top_means = None
+        self.f = None
 
     def compute_solution(self, params):
-        self.u_frames, self.u_means = self.pipeline(*params)
+        # self.frame_data, self.h = self.pipeline(*params)
+        self.results = self.pipeline(*params)
+        self.u_frames = self.results.get_u_frames()
+        # self.u_t_frames = self.results.get_u_t_frames()
+        # lap_frames = [f.laplacian for f in self.frame_data]
+        # if any(l is not None for l in lap_frames):
+        #    self.lap_frames = lap_frames
+        self.u_means = [f.mean() for f in self.u_frames]
 
     def compute_pde_residuals(self, frame, alpha):
-        _, self.R_pde_means = compute_pde_residual(self.u_frames, frame, alpha)
+        if self.results.has_laplacian and self.results.has_u_t:
+            print("self.results.has_laplacian and self.results.has_u_t")
+            self.R_pde_means = []
+            for n in range(1, len(self.u_frames)-1):
+                u_t = self.results.get_u_t_frames()[n]
+                lap_u = self.results.get_laplacians()[n]
+                R = np.abs(u_t - alpha * lap_u - self.results.f)
+                self.R_pde_means.append(np.mean(R))
+        else:
+            print("NOT self.results.has_laplacian and self.results.has_u_t")
+            _, self.R_pde_means = compute_pde_residual(self.results.get_u_frames(), self.results.get_u_t_frames(), frame, alpha, self.results.f)
 
     def compute_boundary_residuals(self, frame, ibvp):
         u_amb = ibvp.u_amb()
-        R_left, R_right, R_bottom, R_top = boundary_residual(self.u_frames[-1], frame, ibvp.b, ibvp.a, u_amb)
-        self.R_left_means, self.R_right_means, self.R_bottom_means, self.R_top_means = \
-            map(np.mean, [R_left, R_right, R_bottom, R_top])
+        n = len(self.u_frames)-1
+        if self.results.has_derivs:
+            dummy = self.u_frames[n][:,:]
+            print("OHO")
+            print("self.results.has_u_x and self.results.has_u_y")
+            R_left = ibvp.b * ( -self.results.get_u_x_frames()[n][0,:] ) + ibvp.a * self.u_frames[n][0,:] - ibvp.a * u_amb
+            R_right = ibvp.b * ( self.results.get_u_x_frames()[n][-1,:] ) + ibvp.a * self.u_frames[n][-1,:] - ibvp.a * u_amb
+            R_bottom = ibvp.b * ( -self.results.get_u_y_frames()[n][:,0] ) + ibvp.a * self.u_frames[n][:,0] - ibvp.a * u_amb
+            R_top = ibvp.b * ( self.results.get_u_y_frames()[n][:,-1] ) + ibvp.a * self.u_frames[n][:,-1] - ibvp.a * u_amb
+            self.R_left_means = np.mean(R_left**2)
+            self.R_right_means = np.mean(R_right**2)
+            self.R_bottom_means = np.mean(R_bottom**2)
+            self.R_top_means = np.mean(R_top**2)
+        else:
+            print("NOT self.results.has_u_x and self.results.has_u_y")
+            R_left, R_right, R_bottom, R_top = boundary_residual(self.u_frames[-9], frame, ibvp.b, ibvp.a, u_amb)
+            self.R_left_means, self.R_right_means, self.R_bottom_means, self.R_top_means = \
+                map(np.mean, [R_left, R_right, R_bottom, R_top])
 
 
 # -------------------------------------------------------------------------
@@ -121,18 +160,26 @@ class CaseData:
 # -------------------------------------------------------------------------
 def main():
     print("Running solver comparison...\n")
+    # fplot(100)
 
     n_frames = 20
     params = (ibvp1, frame1, frame1.nt // n_frames, n_frames)
     start = time.time()
 
-    data = {
+    data_all = {
         "Green": CaseData(GreenFunctionSolver.pipeline, ":",  "#d95f02", '^', 7),
         "Explicit": CaseData(HeatExplicitSolver.pipeline, "-", "#7570b3", 's'),
         "Crank-Nicolson": CaseData(HeatCrankNicolsonSolver.pipeline, "-.", "#e7298a", 'D'),
         "PINN": CaseData(HeatPINNSolver.pipeline, "--", "#1b9e77", 'o')
     }
 
+    data_test = {
+        "Green": data_all["Green"],
+        "Explicit": data_all["Explicit"],
+        # "Crank-Nicolson": data_all["Crank-Nicolson"]
+    }
+
+    data=data_test
     # Compute solutions + residuals
     for name, case in data.items():
         print(f"Processing: {name}")
@@ -205,20 +252,29 @@ def main():
     # -------------------------------------------------------------------------
     # Snapshot Plots
     # -------------------------------------------------------------------------
-    u_frames = data["Crank-Nicolson"].u_frames  # reference method
+    dummy = data["Green"].u_frames[0]
+    print(f"type of dummy: {type(dummy)}")
+    print(f"shape of dummy: {dummy.shape}")
+    u_frames = data["Green"].results.get_u_frames()  # reference method
+    u_array_frames = u_frames # [frame.u for frame in u_frames]   # nur die 2D-Felder
+
     lx, ly = frame1.lx, frame1.ly
 
     for j in range(0, n_frames + 1, 10):
+        print(f"j: {j}")
         title = f"T = {j * frame1.lt / n_frames:.2f} s"
         fname = f"case3_charts/frame_{j}.png"
-        single_plot(u_frames[j], lx, ly, title, cmap='hot', isolines=True, save_path=fname)
+        # print(f"type of u_frames: {type(u_array_frames)}")
+        print(f"type of u_frames[j]: {type(u_array_frames[j])}")
+        print(f"shape of u_frames[j]: {u_array_frames[j].shape}")
+        single_plot(u_array_frames[j], lx, ly, title, cmap='hot', isolines=True, save_path=fname)
 
 
     # -------------------------------------------------------------------------
     # Animations
     # -------------------------------------------------------------------------
-    anim_slide(u_frames, lx, ly, "Solution (Crank-Nicolson)", cmap='coolwarm', isolines=True)
-    anim_slide(u_frames, lx, ly, "Solution (Crank-Nicolson, hot colormap)", cmap='hot', isolines=True)
+    anim_slide(u_array_frames, lx, ly, "Solution (Crank-Nicolson)", cmap='coolwarm', isolines=True)
+    anim_slide(u_array_frames, lx, ly, "Solution (Crank-Nicolson, hot colormap)", cmap='hot', isolines=True)
 
     # Difference animation (Explicit vs Crank-Nicolson)
     u_exp = data["Explicit"].u_frames

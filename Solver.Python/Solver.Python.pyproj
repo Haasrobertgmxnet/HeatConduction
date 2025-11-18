@@ -25,6 +25,9 @@
     <Compile Include="boundary_conditions.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="calculate_modes.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="crank_nicolson.py">
       <SubType>Code</SubType>
     </Compile>
@@ -49,6 +52,8 @@
     <Compile Include="plot_tools.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="result_data.py" />
+    <Compile Include="result_frames.py" />
     <Compile Include="Solver.Python.py" />
   </ItemGroup>
   <ItemGroup>

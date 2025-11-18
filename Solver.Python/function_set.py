@@ -166,3 +166,22 @@ class ConstantFunc:
             return self.strength * torch.ones_like(x)
         # If numpy or scalar input, return scalar wrapped in a torch tensor
         return torch.Tensor([self.strength])
+
+class ModeFunction:
+    def __init__(self, strength = 1.0):
+        self.strength = strength
+
+    @numpy_torch_compatible
+    def evaluate(self, x, y, t=None):
+        k= 0
+        mode = [0.48503638, 0.1087893,  0.04307502, 0.0239897, 0.01570866][k]
+        scal = [0.47979843,0.19595146,0.10821043,0.0736955,0.05570078][k]
+        mode_x = mode
+        mode_y = mode
+        scal_x = scal
+        scal_y = scal
+        gamma = 0.5
+        phi_x = np.sin(mode_x * x) + (mode_x/gamma)*np.cos(mode_x * x)
+        phi_y = np.sin(mode_y * y) + (mode_y/gamma)*np.cos(mode_y * y)
+
+        return (scal_x * phi_x) * (scal_y * phi_y) * self.strength

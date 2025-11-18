@@ -34,11 +34,18 @@
 
 # Example usage ---------------------------------------------------------------
 
-from function_set import GaussKernel, CompactGaussKernel, CompactCylindricalKernel, ConstantFunc
+from function_set import GaussKernel, CompactGaussKernel, CompactCylindricalKernel, ModeFunction, ConstantFunc
 
 # Choose the heat source function via kernel
 gauss_kernel = GaussKernel(0.5, 0.5, 0.1, 500.0)
 heat_source = gauss_kernel.evaluate
+
+# Choose the heat source function via kernel
+gauss_kernel = GaussKernel(0.5, 0.5, 0.1, 500.0)
+heat_source = gauss_kernel.evaluate
+
+f = ModeFunction()
+# heat_source = f.evaluate
 
 # Initial temperature distribution
 initial_temp = ConstantFunc(25.0)
