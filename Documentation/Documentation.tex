@@ -77,10 +77,11 @@
 \def\title
 \usepackage{fancyhdr}
 \pagestyle{fancy}
-\fancyhf{}
-\fancyhead[L]{Heat Conduction Simulation}
-\fancyhead[R]{\thepage}
-
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyhead[L]{Heat Conduction Simulation}
+  \fancyfoot[C]{\thepage}
+}
 \fancyfoot[L]{\textcolor{gray}{\small Robert Haas – Technical Software and Mathematics}}
 \fancyfoot[R]{\textcolor{gray}{\small Page \thepage\ of \pageref{LastPage}}}
 \renewcommand{\footrulewidth}{0.4pt}
@@ -277,6 +278,9 @@ For a complete well-posed the heat conduction problem (\ref{HeatEquation2D}) has
 a \Temp + b \frac{\partial \Temp}{\partial \nu } = c, \text{ or } \gamma (\Temp - \Temp_b ) + \frac{\partial \Temp}{\partial \nu } = 0, \text{ on }\partial \Omega \times (0,T)
 \end{equation*}
 for solutions $\Temp $ of $ \partial \Temp / \partial t = \alpha\Laplace \Temp +f $ and $a \Temp_b = c, \; \gamma = a/b $.
+\begin{remark}
+From now on we \emph{always assume} $ \gamma > 0 $. That is important to prove some of the essential results in the following section.
+\end{remark}
 
 A typical initial condition which will be used here is $ \Temp (x,y,0)= \Temp_0 (x, y) $. 
 
@@ -332,12 +336,61 @@ for all $m$, $n \in \mathbbm{N} $. Furthermore, the sequences have the (improper
 \end{equation}
 \end{lemma}
 %
-\begin{proof}
-One checks that the conditions (SL) in  \cite[p. 286]{walter2000ode} for the existence theorem therein are fulfilled and there exist infinitely many eigenvalues. Their sequences are monotonically increasing and tend to infinity as in (\ref{eig_monotone}, \ref{eig_limit}).
+For the proof we use techniques of the spectral theory of linear operators. For brevity we cannot go in detail here. Essentials on spectral theory can be found in every good textbook on functional analysis, for example in \cite[pp 130 f]{meinhold1990pdg}, or in \cite[pp 465–505, pp 542–571]{heuser1986funktionalanalysis}.
+\begin{definition}[Spectrum and resolvent set]
+For a linear operator $A \in \mathscr{L} (H) $ on a Hilbert space $H$ we define the \emph{resolvent set} $\varrho (A) $ as the subset of the complex plane $\mathbbm{C}$ containing all $ z \in \mathbbm{C}$ for which $ A - zI $ has a continuous inverse $(A - zI)^{-1} \in \mathscr{L} (H) $. The complement set $\sigma (A) = \mathbbm{C}\setminus \varrho (A)$ is called the \emph{spectrum} of $A$. The operator $R(z,A) = (A - zI)^{-1} $ is called \emph{resolvent}.
+\end{definition}
+\begin{proof}%[Sketch of the proof]
+We define a linear operator $ A : H^2(\Omega ) \rightarrow L^2(\Omega ) $ via the sesquilinear functional $\ell : H^2(\Omega ) \times H^2(\Omega ) \rightarrow \mathbbm{C}$ given by the expression
+\begin{comment}
+\begin{eqnarray*}
+\ell (w, \xi ) & = & \left( A w, \xi \right)_{L^2(\Omega ) } \\
+& = & \left( \nabla w, \nabla \xi \right)_{L^2(\Omega ,\mathbbm{R}^d ) } - \lambda^2 \left( w, \xi \right)_{L^2(\Omega ,\mathbbm{R} ) } + \gamma \left( w, \xi \right)_{L^2(\partial \Omega ,\mathbbm{R} ) } \\
+& = & \int_\Omega \left( \nabla w \cdot \nabla \xi - \lambda^2 w \xi \right) \mathrm{d}\mu + \gamma \int_{\partial \Omega } w \xi \mathrm{d} S .
+\end{eqnarray*}
+\end{comment}
+%
+\begin{eqnarray}
+\ell (w, \xi ) & = & \left( A w, \xi \right)_{L^2(\Omega ) } \label{ell_func_1}\\
+& = & \left( \nabla w, \nabla \xi \right)_{L^2(\Omega ,\mathbbm{R}^d ) } + \gamma \left( w, \xi \right)_{L^2(\partial \Omega ,\mathbbm{R} ) } \label{ell_func_2}\\
+& = & \int_\Omega \nabla w \cdot \nabla \xi  \mathrm{d}\mu + \gamma \int_{\partial \Omega } w \xi \mathrm{d} S .
+\end{eqnarray}
+Note that we could have chosen $H^1(\Omega ) $ instead of $H^2(\Omega ) $. By definition, the operator $A$ is self-adjoint and for all $ z \in \mathbbm{C} $. The operator $ A -z I $ maps $ H^2(\Omega ) $ into $ L^2(\Omega ) $ as $A$ and is self-adjoint too. Then, its resolvent $R(z,A ) = (A -z I )^{-1} $ for $ z \in \varrho (A) $ is a linear mapping from $ L^2(\Omega ) $ to  $H^2(\Omega )$. According to standard theory of Sobolev spaces the embedding $j: H^2(\Omega ) \rightarrow L^2(\Omega ) $ is a compact operator, hence $ j \circ R(z,A ) : L^2(\Omega ) \rightarrow L^2(\Omega ) $ is compact, too. Redefining $ R(z,A )= j \circ R(z,A ) $ the resolvent identity $R(z,A ) - R(z_0,A ) = (z_0 - z) R(z,A ) R(z_0,A )$ assures compact $ R(z,A) $ for all $ z \in \varrho (A) $. Next we apply \cite[Theorem 15.12, p 137]{meinhold1990pdg} that allows to write
+\begin{equation*}
+R(z,A )\psi_n = \zeta_n \psi_n \text{ and } \psi_n = \zeta_n (A - zI) \psi_n \text{ for all } z \in \varrho (A)
+\end{equation*}
+with a sequence $ \{ \zeta_n \}_{n \in \mathbbm{N}} $ of complex numbers of $\sigma (R(z,A )) $ tending to zero as $n$ tends to infinity and eigenfunctions $\psi_n $ attached to $ \zeta_n $. Vice versa, $ z_n = 1 / \zeta_n $ define the eigenvalues of $(A - zI) $, i.e.
+\begin{equation*}
+(A - zI) \psi_n = z_n \psi_n \text{ and } A \psi_n = \eta_n \psi_n ,
+\end{equation*}
+where $ \eta_n = z + z_n $. Since $ \zeta_n $ has zero limit $ \eta_n $ tends to infinity as $n \rightarrow \infty $. Note that $ \eta_n \in \sigma (A) $ and since $A$ is self-adjoint we have $ \eta_n \in \sigma (A) \subset \mathbbm{R}$. Inserting $ w = \psi_n $ and $ \xi = \psi_n $ into (\ref{ell_func_1}) we have
+\begin{equation*}
+\int_\Omega \left| \nabla \psi_n \right|^2  \mathrm{d}\mu + \gamma \int_{\partial \Omega } \left| \psi_n \right|^2 \mathrm{d} S = \eta_n \int_\Omega \left| \psi_n \right|^2 \mathrm{d} \mu \geq 0,
+\end{equation*}
+that is $ \eta_n \geq 0 $ and $ \eta_n = \mu^2_n $ is justified for $ \mu_n \in \mathbbm{R} $. The proof of (\ref{eig_monotone}) and (\ref{eig_limit}) is done.
 \end{proof}
 %
 \begin{remark}
 Later we will see that all eigenvalues are non-zero and positive in case of proper Robin boundary conditions.
+\end{remark}
+%
+\begin{remark}
+In  \cite[p. 286]{walter2000ode} there is an alternative proof of Lemma \ref{sturm_liou__eig_vals} using just elementary theory of ordinary differential equations and avoiding deep spectral theory of function spaces.
+\begin{comment}
+Another approach is using the spectral theory of self-adjoint operators. This could e done by working out the following steps of the sketch:
+\begin{enumerate}
+\item 
+The problem (\ref{sturm_liou_X}) must be represented by a self-adjoint linear operator $A : \mathrm{dom}(A) \subset H_1 \rightarrow H_2 $ between two appropriate Hilbert spaces $H_1 $ and $H_2 $. Usually Sobolev spaces are the common choice.
+\item The resolvent $R(z,A ) = (A -z I )^{-1} $ defined on the resolvent set $\varrho (A)\subset \mathbbm{C} $ must be a compact operator for one $ z\in \varrho (A) $. This has to be shown.
+\item 
+If the resolvent $R(z,A ) $ is compact for one $ z\in \varrho (A) $ it is compact on the whole resolvent set $ \varrho (A) $ and its eigenvalues $ \zeta_n $ tend to zero as $ n $ tends to $\infty $.
+\item 
+That means $ \psi_n = \zeta_n (A - zI) \psi_n $ for the $n$th eigenelement ttached to $ \zeta_n $. With $ z_n = \zeta_n^{-1} $ that is finally $A \psi_n = (z_n + z ) \psi_n $, where $ z_n + z  $ tends to infinity as $ n $ tends to $\infty $.
+\item
+For a self-adjoint operator $A$ all eigenvalues are real numbers. 
+\end{enumerate}
+Essentials on spectral theory can be found in \cite[p. 130 f]{meinhold1990pdg}
+\end{comment}
 \end{remark}
 %
 The solution of (\ref{eigenvalsLaplace3}) is given by
@@ -379,7 +432,7 @@ F(\mu ) =  B_1 \cdot \left((\gamma^2  - \mu^2) \mathrm{sin}(\mu ) + 2 \mu \gamma
 \end{equation}
 The term of the left hand side of (\ref{NonZeroMuBC}) is a function $F$ of $\mu $. Then the zeros of $F$ are solutions of (\ref{NonZeroMuBC}). The following chart shows this function $F$ and its first zeros for $\gamma = 1/2 $.
 %
-\begin{figure}[h!]
+\begin{figure}[H]
     \centering
 
     % Breite der Regeln = Breite des Bildes
@@ -595,7 +648,7 @@ That means that the solution $w (x,y, t) $ of the homogeneous problem is uniform
 \end{proof}
 
 \begin{remark}
-If the homeogenous heat conduction problem is supplemented with homogeneous Neumann boundary conditions the assertion of Theorem \ref{w_stability_robin_bc} is not true: It can be shown that the solutions $w$ will tend to infinity as the time $t$ goes to infinity.
+If the homogeneous heat conduction problem is supplemented with homogeneous Neumann boundary conditions the assertion of Theorem \ref{w_stability_robin_bc} is not true: It can be shown that the solutions $w$ will tend to infinity as the time $t$ goes to infinity.
 \end{remark}
 
 \subsection{The inhomogeneous Heat Conduction Problem}
@@ -890,7 +943,9 @@ The Green function as given by (\ref{GreenForPartiallyInhomogenHeatC},\ref{Green
 \item Since the heat source does not depend on the time $t$ as well es the eigenmodes integration wrt. time and spatial integration allow for total decoupling. Time integration in (\ref{GreenForPartiallyInhomogenHeatC2}) of the amplitude function can be done exactly and its integral allows the closed form $ \int_0^t \mathrm{exp}\left( -\alpha (\mu^2_m + \lambda^2_n ) \tau \right) \mathrm{d}\tau = \frac{1 -\mathrm{exp}\left( -\alpha (\mu^2_m + \lambda^2_n ) t \right)}{\alpha (\mu^2_m + \lambda^2_n )}$.
 \end{itemize}
 
-\subsubsection*{Setup and first results}
+\subsubsection*{Setup of the finite-difference solvers}
+
+\subsubsection*{PINN setup and first results}
 With the choice $u_0 = 25\,^{\circ}\mathrm{C} $, $a=1/2 $ and $ b=1 $ in (\ref{robin_bc}) we redo the simulation of case 1 where all other parameters are left unchanged.
 \begin{table}[h!] 
 \centering
@@ -908,6 +963,160 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
 \caption{Adjustment and Results.}
 \label{AdjustmentAndResults2}
 \end{table}
+
+\subsubsection*{First results}
+
+\begin{figure}[H]
+    \centering
+
+    % Breite der Regeln = Breite des Bildes
+    %\newlength{\figwidth}
+    \setlength{\figwidth}{0.9\textwidth}
+
+    % Definitionen wie booktabs
+    \newcommand{\figtrule}{\rule{\figwidth}{0.08em}}   % top
+    \newcommand{\figmrule}{\rule{\figwidth}{0.05em}}   % mid
+    \newcommand{\figbrule}{\rule{\figwidth}{0.05em}}   % bottom
+    
+    
+    % Linien vor der Abbildung
+    \figtrule
+
+    \vspace{2pt}
+    \textbf{PDE Residuals (MAE) over Time}
+    \vspace{1pt}
+
+    \figmrule
+
+    % Bild
+    \vspace{2pt}
+    \includegraphics[width=\figwidth]{Images/all_pde_residuals.png}
+
+    % Linie nach der Abbildung
+    \vspace{1pt}
+    \figbrule
+
+    \caption{PDE Residuals (MAE) over time.}
+    \label{fig:PDE_res1}
+
+    % Linie nach der Caption
+    %\vspace{1pt}
+    \figbrule
+\end{figure}
+
+\begin{figure}[h!]
+    \centering
+
+    % Breite der Regeln = Breite des Bildes
+    %\newlength{\figwidth}
+    \setlength{\figwidth}{0.9\textwidth}
+
+    % Definitionen wie booktabs
+    \newcommand{\figtrule}{\rule{\figwidth}{0.08em}}   % top
+    \newcommand{\figmrule}{\rule{\figwidth}{0.05em}}   % mid
+    \newcommand{\figbrule}{\rule{\figwidth}{0.05em}}   % bottom
+    
+    
+    % Linien vor der Abbildung
+    \figtrule
+
+    \vspace{2pt}
+    \textbf{PDE Residuals (MAE) over Time}
+    \vspace{1pt}
+
+    \figmrule
+
+    % Bild
+    \vspace{2pt}
+    \includegraphics[width=\figwidth]{Images/all_pde_residuals2.png}
+
+    % Linie nach der Abbildung
+    \vspace{1pt}
+    \figbrule
+
+    \caption{PDE Residuals (MAE) over time.}
+    \label{fig:PDE_res2}
+
+    % Linie nach der Caption
+    %\vspace{1pt}
+    \figbrule
+\end{figure}
+
+\begin{figure}[h!]
+    \centering
+
+    % Breite der Regeln = Breite des Bildes
+    %\newlength{\figwidth}
+    \setlength{\figwidth}{0.9\textwidth}
+
+    % Definitionen wie booktabs
+    \newcommand{\figtrule}{\rule{\figwidth}{0.08em}}   % top
+    \newcommand{\figmrule}{\rule{\figwidth}{0.05em}}   % mid
+    \newcommand{\figbrule}{\rule{\figwidth}{0.05em}}   % bottom
+    
+    
+    % Linien vor der Abbildung
+    \figtrule
+
+    \vspace{2pt}
+    \textbf{PDE Residuals (MAE) over Time}
+    \vspace{1pt}
+
+    \figmrule
+
+    % Bild
+    \vspace{2pt}
+    \includegraphics[width=\figwidth]{Images/all_pde_residuals3.png}
+
+    % Linie nach der Abbildung
+    \vspace{1pt}
+    \figbrule
+
+    \caption{PDE Residuals (MAE) over time.}
+    \label{fig:PDE_res3}
+
+    % Linie nach der Caption
+    %\vspace{1pt}
+    \figbrule
+\end{figure}
+
+\begin{figure}[h!]
+    \centering
+
+    % Breite der Regeln = Breite des Bildes
+    %\newlength{\figwidth}
+    \setlength{\figwidth}{0.9\textwidth}
+
+    % Definitionen wie booktabs
+    \newcommand{\figtrule}{\rule{\figwidth}{0.08em}}   % top
+    \newcommand{\figmrule}{\rule{\figwidth}{0.05em}}   % mid
+    \newcommand{\figbrule}{\rule{\figwidth}{0.05em}}   % bottom
+    
+    
+    % Linien vor der Abbildung
+    \figtrule
+
+    \vspace{2pt}
+    \textbf{Boundary Residuals (MSE), last Frame}
+    \vspace{1pt}
+
+    \figmrule
+
+    % Bild
+    \vspace{2pt}
+    \includegraphics[width=\figwidth]{Images/all_bdry_residuals.png}
+
+    % Linie nach der Abbildung
+    \vspace{1pt}
+    \figbrule
+
+    \caption{PDE Residuals (MAE) over time.}
+    \label{fig:Bdry_res3}
+
+    % Linie nach der Caption
+    %\vspace{1pt}
+    \figbrule
+\end{figure}
 
 \begin{table}
 \centering
@@ -1029,6 +1238,11 @@ O. Ernst,
 Lecture notes, University of Technology Chemnitz, 2015.
 Link (checked at 2025-09-10): \url{https://www.tu-chemnitz.de/mathematik/numa/lehre/pde-2015/Folien/pdeTeil2.pdf}
 
+\bibitem{heuser1986funktionalanalysis}
+H.~Heuser,
+\emph{Funktionalanalysis: Theorie und Anwendung},
+2.\ Aufl., Vieweg+Teubner Verlag, Wiesbaden, 1986.
+
 \bibitem{hoffmann2014modellierung}
 K.-H. Hoffmann and G. Witterstein, 
 \emph{Mathematische Modellierung: Grundprinzipien in Natur- und Ingenieurwissenschaften}, 
@@ -1045,13 +1259,11 @@ P. Meinhold and W. Wagner,
 \emph{Partielle Differentialgleichungen}, 
 BSB B. G. Teubner Verlagsgesellschaft, Leipzig, 1990.
 
-\begin{comment}
 \bibitem{meise1992funktionalanalysis}
 R.~Meise and D.~Vogt,
 \emph{Einführung in die Funktionalanalysis}
 1st ed., Friedr.~Vieweg \& Sohn Verlagsgesellschaft mbH,
 Braunschweig/Wiesbaden, 1992.
-\end{comment}
 
 \bibitem{rey2011neuralnetworks}
 G.~D. Rey, and K.~F. Wender
