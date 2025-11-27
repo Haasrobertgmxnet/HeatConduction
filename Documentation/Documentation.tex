@@ -162,6 +162,7 @@
             \vspace{1em}
             \centering
             {\normalsize\textbf{Documentation} • \today{ }• Version 1.0}\\[0.5em]
+            {\color{red}{\normalsize\textbf{••• THIS IS STILL A DRAFT •••}}}\\[0.5em]
             {\small PDF generated with \LaTeX}
             \vspace{1em}
         }
@@ -730,11 +731,11 @@ Combining explicit and implicit method leads to the Crank-Nicolson method as ari
 \end{equation*}
 The stability of the explicit Euler method is limited by the CFL condition:
 \begin{equation*}
-\tfrac{\tau }{h^2 } \leq \tfrac{1}{4\alpha }, 
+\frac{\tau }{h^2 } \leq \frac{1}{4\alpha }, 
 \end{equation*}
 whereas for the Crank-Nicolson method
 \begin{equation*}
-\tfrac{\tau }{h^2 } \leq \tfrac{1}{2\alpha }
+\frac{\tau }{h^2 } \leq \frac{1}{2\alpha }
 \end{equation*}
 must be fulfilled for $L^\infty $-stability. For more information, see \cite[p 112]{Ernst2015}.
 
@@ -789,7 +790,25 @@ Root mean square error (RMSE): Square root of the MSE.
 \end{enumerate}
 First we will use the simple MAE approach.
 Furthermore, the Green function as an exact solution formula allows for a closed form of the derivatives. 
-
+%
+\begin{remark} \label{two_t_frames}
+We will use two time frames: 
+\begin{itemize}
+\item
+One with small time steps for the numerical calculation, e.g. inside the finite-difference solvers. Especially the explicit solver must not use too large time steps to keep numerics stable with respect to the CFL condition. We will refer to it as \emph{Calculation Time Grid}.
+\item
+A time frame with rather large time steps for visualisation and animation. If the time steps here are too small there may no change between two neighbouring times visible. But memory and CPU load would be high for nothing. We will refer to it as \emph{Visualisation Time Grid}.
+\end{itemize}
+\end{remark}
+\begin{remark} \label{numerical_dt}
+If the coarse time grid of Remark \ref{two_t_frames} is used, the precision of the numerical time derivative may be insufficient. There are some strategies to overcome this artefact:
+\begin{itemize}
+\item
+In view of Remark \ref{two_t_frames} the numerical differentiation wrt to time may lead to more precise results, if the finer time grid is used.
+\item
+The method involving the Green's function allows for exact time and space derivatives.
+\end{itemize}
+\end{remark}
 
 \subsubsection*{Boundary Residuals}
 \begin{enumerate}
@@ -838,6 +857,7 @@ Spatial Average of the calculated Temperatures\\
 \label{AverageTempeatures1}
 \end{table}
 
+\begin{comment}
 \begin{table}
 \centering
 { \renewcommand{\arraystretch}{1.4}
@@ -853,6 +873,7 @@ Explicit Solver& PINN\\
 \caption{Solution to different time frames.}
 \label{SolutionsTimeframes1}
 \end{table}
+\end{comment}
 
 The behaviour of the averaged temperatures shown in Figure (\ref{AverageTempeatures1}) confirms the pattern stated in Theorem \ref{LT_no_flux}.
 
@@ -936,12 +957,39 @@ $ \uTemp_{\mathrm{amb}} $ in (\ref{heat_conduction_case2_bc}) & 25.0 & $^\circ C
 \end{table}
 
 \subsubsection*{Calculation of the Green function}
-The Green function as given by (\ref{GreenForPartiallyInhomogenHeatC},\ref{GreenForPartiallyInhomogenHeatC2}) is calculated as follows
+%
+The Green function given by (\ref{GreenForPartiallyInhomogenHeatC},\ref{GreenForPartiallyInhomogenHeatC2}) is a closed formula to solve the heat conduction equation supplemented with boundary conditions. To calculate the Green's function several integrals have to to be evaluated. To calculate these integrals a bunch of numerical quadrature methods are available four of them are implemented and investigated here:
 \begin{itemize}
-\item As integration method the summarized Milne rule is used. It is the closed Newton-Cotes formula of order 4. The rule is used separately for both spatial dimensions. We use 5001 sample points in each spatial direction.
-\item It turned out that using the first 414 eigenmodes leads to good results in the sense of the PDE residual.
-\item Since the heat source does not depend on the time $t$ as well es the eigenmodes integration wrt. time and spatial integration allow for total decoupling. Time integration in (\ref{GreenForPartiallyInhomogenHeatC2}) of the amplitude function can be done exactly and its integral allows the closed form $ \int_0^t \mathrm{exp}\left( -\alpha (\mu^2_m + \lambda^2_n ) \tau \right) \mathrm{d}\tau = \frac{1 -\mathrm{exp}\left( -\alpha (\mu^2_m + \lambda^2_n ) t \right)}{\alpha (\mu^2_m + \lambda^2_n )}$.
+\item \emph{Simpson rule:} Closed Newton-Cotes of order 2. Used as summarized quadrature rule with weights $ \{ 1/3,\, 4/3,\, 2/3,\, 4/3,\, 2/3, \dots ,\, 2/3,\, 4/3,\,  1/3\} $.
+\item \emph{3/8 rule:} Closed Newton-Cotes of order 3. Used as summarized quadrature rule with weights $ \{ 3/8,\, 9/8,\,9/8,\,6/8, \dots ,\,6/8,\, 9/8,\,9/8,\, 3/8\} $.
+\item \emph{Milne rule:} Closed Newton-Cotes of order 4. Used as summarized quadrature rule with weights $ \{ 14/45,\, 64/45,\,24/45,\, 64/45,\,28/45, \dots ,\, 64/45,\,24/45,\, 64/45,\, 14/45 \} $.
+\item \emph{Clenshaw-Curtis rule:} This method uses an integration grid whose points are not equidistantly distributed. Beyond the calculation of the weights the spatial integration these points are calculated. See \cite{waldvogel2006fast}. 
+\item \emph{Closed analytic expression:} Since the heat source does not depend on the time $t$ as well es the eigenmodes integration wrt. time and spatial integration allow for total decoupling. Time integration in (\ref{GreenForPartiallyInhomogenHeatC2}) of the amplitude function can be done exactly and its integral allows the closed form $ \int_0^t \mathrm{exp}\left( -\alpha (\mu^2_m + \lambda^2_n ) \tau \right) \mathrm{d}\tau = \frac{1 -\mathrm{exp}\left( -\alpha (\mu^2_m + \lambda^2_n ) t \right)}{\alpha (\mu^2_m + \lambda^2_n )}$.
 \end{itemize}
+\begin{itemize}
+\item As integration method the summarized Milne rule is used. It is the closed Newton-Cotes formula of order 4. The rule is used separately for both spatial dimensions. We use 5001 sample points in each spatial direction. It turned out that using the first 414 eigenmodes leads to good results in the sense of the PDE residual.
+\item A more precise can be done using Clenshaw-Curtis integration see \cite{waldvogel2006fast}.  With 7801 points and 3040 eigenmodes a fairly good PDE residual can be achieved.
+\end{itemize}
+
+To compare the four numerical methods we use a spatial grid of 7801 points in x- and y-direction and 3040 eigenmodes. The Gram matrix $G = (g_{i,j})_{i,j=1}^N $ of the eigenfunctions $\phi_n (x) $ is given by $g_{i,j} = \int_0^1 \phi_i (x)\phi_j (x) \mathrm{d}x $. For an orthonormal system $\{ \phi_n (x) \}_{n=1}^N $ we expect a Gram matrix equal to the identity matrix $I$, i.e. $g_{i,j} = \delta_{i,j} $ where $ \delta_{i,j} $ is the Kronecker delta. Then $ G - I $ must be the zero matrix, or numerically $ \mathrm{sup}_{i,j} \| g_{i,j} - \delta_{i,j} \| $. We call this Gram matrix residual. The results are in the following table
+\begin{table}[h!] 
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{ccl}
+\toprule
+\textbf{Method} & \textbf{PDE residual} & \textbf{Gram matrix residual}\\
+\midrule
+Simpson & 1.647205e-09 & 6.268031e-09 \\
+3/8 rule & 1.428434e-09 & 0.1250000 \\
+Milne & 2.068634e-09 & 0.02222222 \\
+Clenshaw-Curtis & 1.737587e-09 & 8.719940 e-06 \\
+\bottomrule
+\end{tabular}}
+\caption{Residuals as quadrature quality measures.}
+\label{residuals_validation2}
+\end{table}
+As one observes, 3/8 rule and Milne rule have unexpected large Gram matrix residuals whic are not approximately zero.
+Obviously, the Simpson would be a good compromise in view of the two residuals.
 
 \subsubsection*{Setup of the finite-difference solvers}
 
@@ -966,6 +1014,7 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
 
 \subsubsection*{First results}
 
+
 \begin{figure}[H]
     \centering
 
@@ -983,20 +1032,20 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
     \figtrule
 
     \vspace{2pt}
-    \textbf{PDE Residuals (MAE) over Time}
+    \textbf{Average Temperatures $T_{avg}$ (°C) over Time}
     \vspace{1pt}
 
     \figmrule
 
     % Bild
     \vspace{2pt}
-    \includegraphics[width=\figwidth]{Images/all_pde_residuals.png}
+    \includegraphics[width=\figwidth]{Images/all_avg_temps.png}
 
     % Linie nach der Abbildung
     \vspace{1pt}
     \figbrule
 
-    \caption{PDE Residuals (MAE) over time.}
+    \caption{Average Temperatures over Time.}
     \label{fig:PDE_res1}
 
     % Linie nach der Caption
@@ -1004,7 +1053,7 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
     \figbrule
 \end{figure}
 
-\begin{figure}[h!]
+\begin{figure}[H]
     \centering
 
     % Breite der Regeln = Breite des Bildes
@@ -1034,53 +1083,15 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
     \vspace{1pt}
     \figbrule
 
-    \caption{PDE Residuals (MAE) over time.}
-    \label{fig:PDE_res2}
+    \caption{PDE Residuals (MAE) over Time.}
+    \label{fig:PDE_res1}
 
     % Linie nach der Caption
     %\vspace{1pt}
     \figbrule
 \end{figure}
 
-\begin{figure}[h!]
-    \centering
-
-    % Breite der Regeln = Breite des Bildes
-    %\newlength{\figwidth}
-    \setlength{\figwidth}{0.9\textwidth}
-
-    % Definitionen wie booktabs
-    \newcommand{\figtrule}{\rule{\figwidth}{0.08em}}   % top
-    \newcommand{\figmrule}{\rule{\figwidth}{0.05em}}   % mid
-    \newcommand{\figbrule}{\rule{\figwidth}{0.05em}}   % bottom
-    
-    
-    % Linien vor der Abbildung
-    \figtrule
-
-    \vspace{2pt}
-    \textbf{PDE Residuals (MAE) over Time}
-    \vspace{1pt}
-
-    \figmrule
-
-    % Bild
-    \vspace{2pt}
-    \includegraphics[width=\figwidth]{Images/all_pde_residuals3.png}
-
-    % Linie nach der Abbildung
-    \vspace{1pt}
-    \figbrule
-
-    \caption{PDE Residuals (MAE) over time.}
-    \label{fig:PDE_res3}
-
-    % Linie nach der Caption
-    %\vspace{1pt}
-    \figbrule
-\end{figure}
-
-\begin{figure}[h!]
+\begin{figure}[H]
     \centering
 
     % Breite der Regeln = Breite des Bildes
@@ -1118,7 +1129,85 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
     \figbrule
 \end{figure}
 
-\begin{table}
+\begin{comment}
+\begin{figure}[H]
+    \centering
+
+    % Breite der Regeln = Breite des Bildes
+    %\newlength{\figwidth}
+    \setlength{\figwidth}{0.9\textwidth}
+
+    % Definitionen wie booktabs
+    \newcommand{\figtrule}{\rule{\figwidth}{0.08em}}   % top
+    \newcommand{\figmrule}{\rule{\figwidth}{0.05em}}   % mid
+    \newcommand{\figbrule}{\rule{\figwidth}{0.05em}}   % bottom
+    
+    
+    % Linien vor der Abbildung
+    \figtrule
+
+    \vspace{2pt}
+    \textbf{PDE Residuals (MAE) over Time}
+    \vspace{1pt}
+
+    \figmrule
+
+    % Bild
+    \vspace{2pt}
+    \includegraphics[width=\figwidth]{Images/all_pde_residuals2.png}
+
+    % Linie nach der Abbildung
+    \vspace{1pt}
+    \figbrule
+
+    \caption{PDE Residuals (MAE) over time.}
+    \label{fig:PDE_res2}
+
+    % Linie nach der Caption
+    %\vspace{1pt}
+    \figbrule
+\end{figure}
+
+
+\begin{figure}[H]
+    \centering
+
+    % Breite der Regeln = Breite des Bildes
+    %\newlength{\figwidth}
+    \setlength{\figwidth}{0.9\textwidth}
+
+    % Definitionen wie booktabs
+    \newcommand{\figtrule}{\rule{\figwidth}{0.08em}}   % top
+    \newcommand{\figmrule}{\rule{\figwidth}{0.05em}}   % mid
+    \newcommand{\figbrule}{\rule{\figwidth}{0.05em}}   % bottom
+    
+    
+    % Linien vor der Abbildung
+    \figtrule
+
+    \vspace{2pt}
+    \textbf{PDE Residuals (MAE) over Time}
+    \vspace{1pt}
+
+    \figmrule
+
+    % Bild
+    \vspace{2pt}
+    \includegraphics[width=\figwidth]{Images/all_pde_residuals3.png}
+
+    % Linie nach der Abbildung
+    \vspace{1pt}
+    \figbrule
+
+    \caption{PDE Residuals (MAE) over time.}
+    \label{fig:PDE_res3}
+
+    % Linie nach der Caption
+    %\vspace{1pt}
+    \figbrule
+\end{figure}
+
+\begin{table}%[ht]
 \centering
 { \renewcommand{\arraystretch}{1.4}
 \begin{tabular}{cc}
@@ -1145,23 +1234,108 @@ Spatial Average of the calculated Temperatures\\
 \caption{Temperature averages for explicit and PINN solver.}
 \label{AverageTempeatures2}
 \end{table}
+\end{comment}
+
+% \subsubsection{Reference vs Explicit}
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cc}
+\toprule
+Reference & Explicit\\
+\midrule
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_1.png} & \includegraphics[width=0.5\textwidth]{case_charts/Explicit_frame_1.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_2.png} & \includegraphics[width=0.5\textwidth]{case_charts/Explicit_frame_2.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_3.png} & \includegraphics[width=0.5\textwidth]{case_charts/Explicit_frame_3.png}\\
+\bottomrule
+\end{tabular}}
+\caption{Solution to different time frames.}
+\label{GreenExplicit1}
+\end{table}
 
 \begin{table}
 \centering
 { \renewcommand{\arraystretch}{1.4}
 \begin{tabular}{cc}
 \toprule
-Explicit Solver& PINN\\
+Reference & Explicit\\
 \midrule
-\includegraphics[width=0.5\textwidth]{case2_charts/Explicit/Frame10.png} & \includegraphics[width=0.5\textwidth]{case2_charts/PINN/Frame10.png}\\
-\includegraphics[width=0.5\textwidth]{case2_charts/Explicit/Frame30.png} & \includegraphics[width=0.5\textwidth]{case2_charts/PINN/Frame30.png}\\
-\includegraphics[width=0.5\textwidth]{case2_charts/Explicit/Frame50.png} & \includegraphics[width=0.5\textwidth]{case2_charts/PINN/Frame50.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_5.png} & \includegraphics[width=0.5\textwidth]{case_charts/Explicit_frame_5.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_10.png} & \includegraphics[width=0.5\textwidth]{case_charts/Explicit_frame_10.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_20.png} & \includegraphics[width=0.5\textwidth]{case_charts/Explicit_frame_20.png}\\
 \bottomrule
 \end{tabular}}
 \caption{Solution to different time frames.}
-\label{SolutionsTimeframes1}
+\label{GreenExplicit2}
 \end{table}
 
+% \subsubsection{Reference vs Crank-Nicolson}
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cc}
+\toprule
+Reference & Crank-Nicolson\\
+\midrule
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_1.png} & \includegraphics[width=0.5\textwidth]{case_charts/Crank-Nicolson_frame_1.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_2.png} & \includegraphics[width=0.5\textwidth]{case_charts/Crank-Nicolson_frame_2.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_3.png} & \includegraphics[width=0.5\textwidth]{case_charts/Crank-Nicolson_frame_3.png}\\
+\bottomrule
+\end{tabular}}
+\caption{Solution to different time frames.}
+\label{GreenCN1}
+\end{table}
+
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cc}
+\toprule
+Reference & Crank-Nicolson\\
+\midrule
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_5.png} & \includegraphics[width=0.5\textwidth]{case_charts/Crank-Nicolson_frame_5.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_10.png} & \includegraphics[width=0.5\textwidth]{case_charts/Crank-Nicolson_frame_10.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_20.png} & \includegraphics[width=0.5\textwidth]{case_charts/Crank-Nicolson_frame_20.png}\\
+\bottomrule
+\end{tabular}}
+\caption{Solution to different time frames.}
+\label{GreenCN2}
+\end{table}
+
+%\subsubsection{Reference vs PINN}
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cc}
+\toprule
+Reference & PINN\\
+\midrule
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_1.png} & \includegraphics[width=0.5\textwidth]{case_charts/PINN_frame_1.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_2.png} & \includegraphics[width=0.5\textwidth]{case_charts/PINN_frame_2.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_3.png} & \includegraphics[width=0.5\textwidth]{case_charts/PINN_frame_3.png}\\
+\bottomrule
+\end{tabular}}
+\caption{Solution to different time frames.}
+\label{GreenPINN1}
+\end{table}
+
+\begin{table}
+\centering
+{ \renewcommand{\arraystretch}{1.4}
+\begin{tabular}{cc}
+\toprule
+Reference & PINN\\
+\midrule
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_5.png} & \includegraphics[width=0.5\textwidth]{case_charts/PINN_frame_5.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_10.png} & \includegraphics[width=0.5\textwidth]{case_charts/PINN_frame_10.png}\\
+\includegraphics[width=0.5\textwidth]{case_charts/Green_frame_20.png} & \includegraphics[width=0.5\textwidth]{case_charts/PINN_frame_20.png}\\
+\bottomrule
+\end{tabular}}
+\caption{Solution to different time frames.}
+\label{GreenPINN2}
+\end{table}
+
+\begin{comment}
 These solutions can be extended to t = 6 s. Then we get
 \begin{table}
 \centering
@@ -1191,7 +1365,7 @@ Explicit Solver& PINN\\
 \caption{Solution to different time frames.}
 \label{SolutionsTimeframes1}
 \end{table}
-
+\end{comment}
 % \section{Discussion}
 
 % \section{Appendix A Trained Models}
@@ -1284,6 +1458,11 @@ W. Rudin
 H.~Stöcker, 
 \emph{Taschenbuch mathematischer Formeln und moderner Verfahren}, 
 3rd rev. and ext. ed., Harri Deutsch Verlag, Frankfurt am Main, 1995.
+
+\bibitem{waldvogel2006fast}
+J.~Waldvogel,
+\emph{Fast construction of the Fej\'er and Clenshaw--Curtis quadrature rules},
+BIT Numerical Mathematics \textbf{46}(1), 195--202, 2006.
 
 \bibitem{walter2000ode}
 W. Walter, 
