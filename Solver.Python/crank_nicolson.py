@@ -386,5 +386,5 @@ class HeatCrankNicolsonSolver():
             tval = (n_frame + 1) * (lt / n_frames)
             print(f"Frame {tval:.2f}: mean={u.mean():.6f}, min={u.min():.6f} @ {min_idx}, max={u.max():.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
         
-        result = result_frames(u_frames, f, has_u_t= False, has_derivs= False, has_laplacian= False)
+        result = result_frames(u_frames, f, has_u_t= True, has_derivs= False, has_laplacian= False)
         return result

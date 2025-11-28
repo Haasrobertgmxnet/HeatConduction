@@ -1,5 +1,6 @@
 ﻿import os
 from re import U
+from tkinter import SE
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -9,6 +10,9 @@ import time
 from result_data import result_data
 from result_frames import result_frames
 
+from int_methods import IntegrationMethod
+from int_methods import simpson_weights, three_eights_weights, milne_weights
+from int_methods import clenshaw_curtis, cc_transform
 from calculate_modes import func, solve, fplot
 
 def inner_L2(f, g, a=0.0, b=1.0, n=10000):
@@ -49,20 +53,20 @@ class GreenFunctionSolver:
         self.ibvp = ibvp
 
         # Eigenvalues for separated Laplacian eigenmodes
-        self.eig_vals = (solve(func, cutoff=5001, coarse_points=10_000, refine=True, refine_points=1_000, x_min=0, x_max=2000)[1:])
-        print(f"Shape of eig_vals: {self.eig_vals.shape}")
+        self.eig_vals = (solve(func, cutoff=4001, coarse_points=10_000, refine=True, refine_points=1_000, x_min=0, x_max=9550)[1:])
+        print(f"Number of eigenvalues: {self.eig_vals.shape}")
 
         # Scaling coefficients corresponding to eigenmodes
         self.scal = np.array([np.sqrt(1.0/I_closed(mode, 0.5)) for mode in self.eig_vals])
 
         # resolution for projection grid
-        self.resolution = 5001
+        self.resolution = 7801
 
         # use filter
         self.use_filter = True
 
-        # use Clenshaw-Curtis quadrature
-        self.use_clenshaw_curtis = True
+        # quadrature method
+        self.integration_method = IntegrationMethod.SIMPSON
 
         # Fill cache
         self.prepare_cache()
@@ -98,6 +102,7 @@ class GreenFunctionSolver:
         debug_ = False
         if not debug_:
             return scals*phi_vals
+
         # Diagnostic output if needed
         arg = mode * x
         print(f"Size x {x.size}")
@@ -152,82 +157,6 @@ class GreenFunctionSolver:
 
         return scals * ddphi_vals
 
-    def prepare_cache_(self):
-        """
-        Prepare and cache projection grid and basis evaluations using
-        Clenshaw–Curtis quadrature on Chebyshev–Lobatto nodes.
-        """
-        if hasattr(self, "_proj_cache"):
-            return
-
-        def clenshaw_curtis(n):
-            """
-            Clenshaw–Curtis nodes and weights on [0,1].
-            Correct implementation following Waldvogel (2006).
-            """
-
-            if n < 2:
-                raise ValueError("n must be >= 2")
-
-            N = n - 1
-
-            # Chebyshev-Lobatto nodes on [-1,1]
-            theta = np.pi * np.arange(n) / N
-            x_cheb = np.cos(theta)
-
-            # Map to [0,1]
-            x = 0.5 * (1 - x_cheb)
-
-            # Compute weights
-            w = np.zeros(n)
-            c = np.zeros(n)
-
-            c[0]  = 2
-            c[-1] = 2
-            c[1:-1] = 1
-
-            # cosine transform of c
-            F = np.real(np.fft.ifft(c))
-
-            # Clenshaw–Curtis weights on [-1,1]
-            w_cheb = np.zeros(n)
-            w_cheb[0]      = F[0] / N
-            w_cheb[-1]     = F[0] / N
-            w_cheb[1:-1]   = 2 * F[1:N] / N
-
-            # Map [-1,1] → [0,1]
-            w = 0.5 * w_cheb
-
-            return x, w
-
-        # test of CC quadrature
-        x, w = clenshaw_curtis(256)
-        f = x**2
-        I = np.sum(w * f)
-        print(I)
-        print("CC quadrature of x^2 over [0,1]:", I, " (exact 1/3)")
-
-        # number of projection points
-        n = self.resolution
-
-        # nodes and weights for x and y
-        xs, wx = clenshaw_curtis(n)
-        ys, wy = clenshaw_curtis(n)
-
-        # evaluate eigenfunctions and their derivatives on CC grid
-        phi_x  = self.phi(xs)     # shape (M, n)
-        phi_y  = self.phi(ys)     # shape (M, n)
-        dphi_x = self.dphi(xs)
-        dphi_y = self.dphi(ys)
-
-        # cache everything
-        self._proj_cache = {
-            "xs": xs, "ys": ys,
-            "wx": wx, "wy": wy,
-            "phi_x": phi_x, "phi_y": phi_y,
-            "dphi_x": dphi_x, "dphi_y": dphi_y,
-        }
-
     def prepare_cache(self):
         """
         Prepare and cache projection grid and basis evaluations for performance.
@@ -237,22 +166,48 @@ class GreenFunctionSolver:
         # We create a fixed "reference" grid for projections (Galerkin coefficients).
         # This is done once and cached for performance.
         if not hasattr(self, "_proj_cache"):
-            def simpson_weights(n):
-                if (n - 1) % 2 != 0:
-                    raise ValueError("Simpson needs an odd number of points.")
-                w = np.ones(n)
-                w[1:-1:2] = 4
-                w[2:-1:2] = 2
-                return w
 
             xs = np.linspace(0, 1., self.resolution)   # reference grid in x (size Nx)
             ys = np.linspace(0, 1., self.resolution)   # reference grid in y (size Ny)
             dx = xs[1] - xs[0]
             dy = ys[1] - ys[0]
-            wx = simpson_weights(len(xs)) * dx / 3.0
-            wy = simpson_weights(len(ys)) * dy / 3.0
+
+            cc_weight_fun = lambda n: clenshaw_curtis(n, transform=cc_transform)
+
+            def get_weight_function(method: IntegrationMethod):
+                nonlocal dx, dy
+                print(f"Selecting weight function for method: {method}")
+                match method:
+                    case IntegrationMethod.SIMPSON:
+                        print("Using Simpson weights.")
+                        return simpson_weights
+
+                    case IntegrationMethod.THREE_EIGHTS:
+                        print("Using 3/8 weights.")
+                        return three_eights_weights
+
+                    case IntegrationMethod.MILNE:
+                        print("Using Milne weights.")
+                        return milne_weights
+
+                    case IntegrationMethod.CLENSHAW_CURTIS:
+                        print("Using Clenshaw-Curtis weights.")
+                        return cc_weight_fun
+
+                    case _:
+                        raise ValueError(f"Unknown integration method: {method}")
+
+            weight_fun = get_weight_function(self.integration_method)
+
+            wx, x = weight_fun(len(xs))
+            wy, y = weight_fun(len(ys))
+
+            wx = wx * dx if self.integration_method != IntegrationMethod.CLENSHAW_CURTIS else wx
+            wy = wy * dy if self.integration_method != IntegrationMethod.CLENSHAW_CURTIS else wy
+
+            xs = xs if x is None else x
+            ys = ys if y is None else y
             
-            # We multiply by "scal" to account for normalization factors of the basis.
             phi_x = self.phi(xs) # shape (M, Nx)
             phi_y = self.phi(ys) # shape (M, Ny)
 
@@ -269,7 +224,7 @@ class GreenFunctionSolver:
             f = xs**2
             I = np.sum(wx * f)
             print(I)
-            print("Simpson quadrature of x^2 over [0,1]:", I, " (exact 1/3)")
+            print("CC quadrature of x^2 over [0,1]:", I, " (exact 1/3)")
 
     def check_orthogonality(self):
         """
@@ -552,7 +507,10 @@ class GreenFunctionSolver:
         f = f.reshape(ny, nx)
 
         solver = GreenFunctionSolver(ibvp.alpha, ibvp, 1.0, 1.0)
+
+        print("solver.check_cached_phis()")
         solver.check_cached_phis()
+        print("solver.validate_projected_f(ibvp.heat_source)")
         solver.validate_projected_f(ibvp.heat_source)
 
         u_frames = [result_data(ibvp.initial_u(x,y))]

@@ -15,6 +15,7 @@
 \usepackage{comment}
 \onehalfspacing
 \usepackage{parskip} % no indent, space between paragraphs
+\usepackage{mdframed}
 
 % Mathematics
 \usepackage{amsmath, amssymb, amsthm}
@@ -42,7 +43,34 @@
 
 % Diagrams
 \usepackage{tikz}
-\usetikzlibrary{positioning, shapes.geometric, arrows}
+\usetikzlibrary{positioning, shapes.geometric, arrows.meta}
+
+\tikzset{
+    neuron/.style={circle, draw, minimum size=10mm},
+    input neuron/.style={neuron, fill=blue!20},
+    hidden neuron/.style={neuron, fill=green!20},
+    output neuron/.style={neuron, fill=red!25},
+    bias neuron/.style={neuron, fill=yellow!40},
+    dots/.style={font=\Large}
+}
+
+% dezente Farben
+\definecolor{conclusionframe}{rgb}{0,0.4,0}   % dunkles Grün
+\definecolor{conclusionback}{rgb}{0.95,1,0.95} % sehr helles, freundliches Grün
+
+% Umgebung definieren
+\newmdenv[
+  linewidth=1pt,
+  roundcorner=6pt,
+  linecolor=conclusionframe,
+  backgroundcolor=conclusionback,
+  skipabove=10pt,
+  skipbelow=10pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  innerleftmargin=10pt,
+  innerrightmargin=10pt
+]{conclusionbox}
 
 % Colors
 %\usepackage{xcolor}
@@ -762,6 +790,101 @@ To set up the PINN training the approach of \cite{aryal2024a} is used and extend
 \item {\bf Sampling:} Random samples of $N \in \{ 1000,\, 8000 \} $ points, each for $x$, $y$ and $t$, which is a Monte-Carlo sampling.
 \end{enumerate}
 
+\begin{figure}[H]
+\centering
+\setlength{\figwidth}{0.9\textwidth}
+
+    % Definitionen wie booktabs
+    \newcommand{\figtrule}{\rule{\figwidth}{0.08em}}   % top
+    \newcommand{\figmrule}{\rule{\figwidth}{0.05em}}   % mid
+    \newcommand{\figbrule}{\rule{\figwidth}{0.05em}}   % bottom
+    
+    
+    % Linien vor der Abbildung
+    \figtrule
+
+    \vspace{2pt}
+    \textbf{The Physics informed neural Network}
+    % \vspace{1pt}
+    \figmrule
+    \vspace{3pt}
+\resizebox{0.9\linewidth}{!}{%
+    \begin{tikzpicture}[
+    scale=0.9,
+    node distance=12mm,
+    line width=0.6pt,
+    >={Stealth[length=3mm,width=2mm]}
+]
+
+% ===== INPUT LAYER (3 Inputs, vertikal zentriert) =====
+\node[input neuron] (x) {$x$};
+\node[input neuron, below=8mm of x] (y) {$y$};
+\node[input neuron, below=8mm of y] (t) {$t$};
+
+% Verschiebe gesamten Input-Layer etwas herunter:
+\begin{scope}[shift={(0,-10mm)}]
+\end{scope}
+
+% ===== HIDDEN LAYER 1 =====
+\node[hidden neuron, right=20mm of y] (h11) {$H^{(1)}_2$};
+\node[hidden neuron, above=of h11] (h12) {$H^{(1)}_1$};
+\node[dots, below=of h11] (dots1) {$\vdots$};
+\node[hidden neuron, below=of dots1] (h14) {$H^{(1)}_{50}$};
+
+% ===== HIDDEN LAYER 2 =====
+\node[hidden neuron, right=20mm of h11] (h21) {$H^{(2)}_2$};
+\node[hidden neuron, above=of h21] (h22) {$H^{(2)}_1$};
+\node[dots, below=of h21] (dots2) {$\vdots$};
+\node[hidden neuron, below=of dots2] (h24) {$H^{(2)}_{50}$};
+
+% ===== HIDDEN LAYER 3 =====
+\node[hidden neuron, right=20mm of h21] (h31) {$H^{(3)}_2$};
+\node[hidden neuron, above=of h31] (h32) {$H^{(3)}_1$};
+\node[dots, below=of h31] (dots3) {$\vdots$};
+\node[hidden neuron, below=of dots3] (h34) {$H^{(3)}_{50}$};
+
+% ===== OUTPUT LAYER (zentriert) =====
+\node[output neuron, right=20mm of h31] (u) {$u(x,y,t)$};
+
+% ===== CONNECTIONS =====
+% Input -> Hidden 1
+\foreach \i in {x,y,t}
+  \foreach \j in {h12,h11,h14}
+    \draw[->] (\i) -- (\j);
+
+% Hidden 1 -> Hidden 2
+\foreach \i in {h12,h11,h14}
+  \foreach \j in {h22,h21,h24}
+    \draw[->] (\i) -- (\j);
+
+% Hidden 2 -> Hidden 3
+\foreach \i in {h22,h21,h24}
+  \foreach \j in {h32,h31,h34}
+    \draw[->] (\i) -- (\j);
+
+% Hidden 3 -> Output
+\foreach \i in {h32,h31,h34}
+    \draw[->] (\i) -- (u);
+
+% ===== LABELS =====
+\node[above=3mm of x] {Input Layer};
+\node[above=3mm of h12] {Hidden Layer 1};
+\node[above=3mm of h22] {Hidden Layer 2};
+\node[above=3mm of h32] (l3) {Hidden Layer 3};
+\node[right=10mm of l3] {Output Layer};
+
+\end{tikzpicture}
+}
+\figbrule
+
+    \caption{The Physics informed neural Network (PINN)}
+    \label{fig:PINN_arch}
+
+    % Linie nach der Caption
+    %\vspace{1pt}
+    \figbrule
+\end{figure} 
+Figure \ref{fig:PINN_arch} shows the architecture of the Physics informed neural Network (PINN) to calculate the heat conduction problem (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}). This PINN contains 3 input nodes, 3 hidden layers, each of them with 50 nodes and one output node.
 
 \section{Case Studies}
 
@@ -1254,7 +1377,15 @@ Again, the Green's method provides the best residuals:
 The residual values in Table \ref{PDE_residuals_table} and Table \ref{Bdry_residuals_table} recommend to take the solution from the Green's function as reference solution for further comparisons.
 \end{conclusion}
 
+\begin{comment}
+\begin{mdframed}[frametitle={Conclusion}]
+The residual values in Table \ref{PDE_residuals_table} and Table \ref{Bdry_residuals_table} recommend to take the solution from the Green's function as reference solution for further comparisons.
+\end{mdframed}
 
+\begin{conclusionbox}[frametitle={Conclusion}]
+The residual values in Table \ref{PDE_residuals_table} and Table \ref{Bdry_residuals_table} recommend to take the solution from the Green's function as reference solution for further comparisons.
+\end{conclusionbox}
+\end{comment}
 
 \begin{comment}
 \begin{figure}[H]
@@ -1363,8 +1494,8 @@ Spatial Average of the calculated Temperatures\\
 \end{table}
 \end{comment}
 
-% \subsubsection{Reference vs Explicit}
-\begin{table}
+%\subsubsection{Reference vs Explicit}
+\begin{table}[h!]
 \centering
 { \renewcommand{\arraystretch}{1.4}
 \begin{tabular}{cc}
@@ -1380,7 +1511,7 @@ Reference & Explicit\\
 \label{GreenExplicit1}
 \end{table}
 
-\begin{table}
+\begin{table}[h!]
 \centering
 { \renewcommand{\arraystretch}{1.4}
 \begin{tabular}{cc}
@@ -1396,8 +1527,8 @@ Reference & Explicit\\
 \label{GreenExplicit2}
 \end{table}
 
-% \subsubsection{Reference vs Crank-Nicolson}
-\begin{table}
+%\subsubsection{Reference vs Crank-Nicolson}
+\begin{table}[h!]
 \centering
 { \renewcommand{\arraystretch}{1.4}
 \begin{tabular}{cc}
@@ -1413,7 +1544,7 @@ Reference & Crank-Nicolson\\
 \label{GreenCN1}
 \end{table}
 
-\begin{table}
+\begin{table}[h!]
 \centering
 { \renewcommand{\arraystretch}{1.4}
 \begin{tabular}{cc}
@@ -1496,9 +1627,26 @@ Explicit Solver& PINN\\
 % \section{Discussion}
 
 % \section{Appendix A Trained Models}
+\newpage
+%\thispagestyle{empty}
+\null
+%
+\newpage
+%\thispagestyle{empty}
+\null
+%
+\newpage
+%\thispagestyle{empty}
+\null
+%
+\newpage
+%\thispagestyle{empty}
+\null
+%
 %\newpage
 %\thispagestyle{empty}
 %\null
+%
 \newpage
 \begin{thebibliography}{9}
 

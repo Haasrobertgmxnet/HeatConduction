@@ -111,7 +111,7 @@ class HeatPINNSolver():
         u_frames = [result_data(u0)]
 
         # Evaluate model at requested times
-        dt = 1e-8
+        dt = 3.0
         with torch.no_grad():
             for n_frame in range(n_frames):
                 start = time.time()
@@ -122,7 +122,7 @@ class HeatPINNSolver():
                 u = model(xv, yv, tv).reshape(frame.ny, frame.nx).cpu().numpy()
                 u2 = u - model(xv, yv, tv + dt).reshape(frame.ny, frame.nx).cpu().numpy()
                 u_t = (u2 - u) / dt
-                u_frames.append(result_data(u, u_t))
+                u_frames.append(result_data(u))
                 min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
                 max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
                 print(f"Frame {tval:.2f}: mean={u.mean():.6f}, min={u.min():.6f} @ {min_idx}, max={u.max():.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")

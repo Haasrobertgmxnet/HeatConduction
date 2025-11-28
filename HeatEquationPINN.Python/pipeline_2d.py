@@ -1,3 +1,16 @@
+import os
+from dataclasses import dataclass, asdict
+import json
+
+os.sys.path.append("../Solver.Python")  # für ibvp_data import
+os.sys.path.append("..")  # für ibvp_data import
+# 
+# from Solver.Python.ibvp_data import ibvp1
+from ibvp_data import ibvp1
+
+# from turtle import st
+# from torch import P
+
 def pipeline_2d():
     import time
     from token import STAR
@@ -8,14 +21,14 @@ def pipeline_2d():
     # -------------------------
     # Parameter
     # -------------------------
-    alpha = 1e-4 # 1.438e-7 # 0.001
+    alpha = 1e-1 # 1.438e-7 # 0.001
     lx, ly = 1.0, 1.0
     nt = 100
     nx, ny = 30, 30
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # -------------------------
-    # InputData (wie vorher, nur sicherstellen, dass Xyt float)
+    # InputData
     # -------------------------
     class InputData:
         def __init__(self, lx, ly, lt, nx, ny, nt):
@@ -39,11 +52,37 @@ def pipeline_2d():
             return self.T[:, :, 0]
 
     xyt = InputData(lx, ly, 1.0, nx, ny, nt)
-    # gesamte Punktwolke (N,3)
+    # whole point cloud (N,3)
     XYT_all = xyt.get_xyt().to(device)
 
+
+
+    @dataclass
+    class PINNConfig:
+        n_interior_samples: int = 3000
+        lambda_phy: float = 1.0
+        lambda_ic: float = 1.0
+        lambda_bc: float = 1.0
+        lambda_cont: float = 0.5
+        # eopchs and early stopping
+        epochs: int = 20000
+        patience: int = 500
+        trigger_times: int = 0
+        # learning rate scheduler parameters
+        gamma: float = 0.5
+        step_size: int = 6000
+        # adam parameters
+        adam_lr: float = 1e-3 # learning rate
+        adam_weight_decay: int  = 0 # L2 regularisation
+        adam_eps: float = 1e-8 # numerical stability
+
+    PINN_config = PINNConfig()
+
+    with open("config.json", "w") as f:
+        json.dump(asdict(PINN_config), f, indent=2)
+
     # -------------------------
-    # Modell (wie vorher)
+    # Model
     # -------------------------
     class PINNHeat(nn.Module):
         def __init__(self, hidden_size=50, n_hidden=5, activation=nn.Tanh()):
@@ -51,15 +90,15 @@ def pipeline_2d():
             layers = [nn.Linear(3, hidden_size), activation]
             for _ in range(n_hidden-1):
                 layers += [nn.Linear(hidden_size, hidden_size), activation]
-            layers += [nn.Linear(hidden_size, 1)]
+            layers += [nn.Linear(hidden_size, 2)]
             self.model = nn.Sequential(*layers)
 
         def forward(self, xyt):
-            return self.model(xyt) # + 25.0
+            return self.model(xyt) + 25.0
 
     model = PINNHeat(hidden_size=50, n_hidden=5).to(device)
-    # optimizer = optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-5)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = optim.Adam(model.parameters(), lr= PINN_config.adam_lr, weight_decay= PINN_config.adam_weight_decay, eps= PINN_config.adam_eps)
+    # optimizer = optim.Adam(model.parameters(), lr= PINN_config.adam_lr)
 
     # -------------------------
     # Hilfsfunktionen
@@ -82,10 +121,10 @@ def pipeline_2d():
         return torch.full_like(xyt[:,0], const_val)
 
     def initial_func(xyt):
-        return initial_func1(xyt)
+        return initial_func2(xyt)
 
     def heat_source(xyt):
-        return 0*gaussian2D(xyt, 1.0, 1.0, 0.5)
+        return gaussian2D(xyt, 1.0, 1.0, 0.5)
 
     def sample_interior_points(xyt, n_samples=1024):
         n_total = xyt.shape[0]
@@ -95,6 +134,7 @@ def pipeline_2d():
 
     # -------------------------
     # 2) Biased Sampler: mehr Punkte in kleinem Zeitfenster nahe t=0
+    # More points where the initial condition is applied
     # -------------------------
     import numpy as np
     def sample_interior_points_biased(xyt_all, n_samples=1024, frac_near0=0.3, t_eps=0.02):
@@ -118,11 +158,16 @@ def pipeline_2d():
         selected = torch.tensor(selected, dtype=torch.long, device=xyt_all.device)
         return xyt_all[selected]
 
+    def get_prediction(xyt):
+        u_pred = model(xyt)        # Shape: (N, 2)
+        return u_pred[:, 0:1], u_pred[:, 1:2]
 
     # physics loss: akzeptiert f=None oder f shape (N,1)
+    # accepts auch heat_source(xyt) als Quelle
     def physics_loss(model, xyt, alpha, f=None):
         xyt = xyt.clone().detach().requires_grad_(True)
-        u = model(xyt)                    # (N,1)
+        # u = model(xyt)                    # (N,1)
+        u,v = get_prediction(xyt)
         grads = torch.autograd.grad(outputs=u, inputs=xyt,
                                     grad_outputs=torch.ones_like(u),
                                     create_graph=True)[0]  # (N,3)
@@ -145,12 +190,17 @@ def pipeline_2d():
             f_tensor = f_tensor.to(u.device)
 
         residual = u_t - alpha * (u_xx + u_yy) - f_tensor
-        return torch.mean(residual ** 2)
+
+        res_v = v - u_t
+
+        return (residual**2).mean() + (res_v**2).mean()
 
     def boundary_loss_robin(model, xyt_boundary, normal_vectors, a=None, b=None, c=None):
         # Neumann-Rand-Loss
         xyt_boundary = xyt_boundary.clone().detach().requires_grad_(True)
-        u_boundary = model(xyt_boundary)
+        # u_boundary = model(xyt_boundary)
+        u_boundary, v_boundary = get_prediction(xyt_boundary)
+
         grads_boundary = torch.autograd.grad(u_boundary, xyt_boundary,
                                              torch.ones_like(u_boundary),
                                              create_graph=True)[0]
@@ -255,16 +305,16 @@ def pipeline_2d():
     # -------------------------
     # Training
     # -------------------------
-    epochs = 1000
-    lambda_phy = 1.0
-    lambda_ic = 0.0
-    lambda_bc = 0.0
-    lambda_cont = 0.0
+    epochs = PINN_config.epochs
+    lambda_phy = PINN_config.lambda_phy
+    lambda_ic = PINN_config.lambda_ic
+    lambda_bc = PINN_config.lambda_bc
+    lambda_cont = PINN_config.lambda_cont
 
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer,
-        step_size=500,
-        gamma=0.5
+        step_size= PINN_config.step_size,
+        gamma= PINN_config.gamma
     )
 
     best_loss = float('inf')     # bester bisheriger Verlust
@@ -278,7 +328,7 @@ def pipeline_2d():
         optimizer.zero_grad()
         # sample interior points
         # xyt_batch = sample_interior_points(XYT_all, n_samples=4096).to(device)
-        xyt_batch = sample_interior_points_biased(XYT_all, n_samples=512).to(device)
+        xyt_batch = sample_interior_points_biased(XYT_all, n_samples= PINN_config.n_interior_samples).to(device)
 
         # Spalte 2 (Index 2) ist t
         mask = XYT_all[:, 2] == 0       # Bool-Maske für t==0
@@ -288,17 +338,17 @@ def pipeline_2d():
         loss_phy = physics_loss(model, xyt_batch, alpha, heat_source(xyt_batch))
 
         # initial condition loss (enforce u(x,y,t=0)=gaussian)
-        u_pred_ic = model(Xyt_ic)
+        # u_pred_ic = model(Xyt_ic)
+        u_pred_ic, _ = get_prediction(Xyt_ic)
         loss_ic = torch.mean((u_pred_ic - u_ic)**2)
-        u_pred_ic_eps = model(Xyt_ic_eps)
+        # u_pred_ic_eps = model(Xyt_ic_eps)
+        u_pred_ic_eps , _ = get_prediction(Xyt_ic_eps)
         loss_cont = torch.mean((u_pred_ic_eps - u_ic)**2)
 
         # loss_bc = boundary_loss_dirichlet(model, xyt_boundary, 0*u_boundary_target)
         loss_bc = boundary_loss_robin(model, xyt_boundary, normals, 0.0, 1.0, 0*u_boundary_target)
 
-        loss = lambda_phy*loss_phy + lambda_ic*loss_ic + lambda_bc*loss_bc
-        # loss = lambda_phy*loss_phy + lambda_ic*loss_ic + lambda_bc*loss_bc + lambda_cont*loss_cont
-        # loss = lambda_phy*loss_phy
+        loss = lambda_phy*loss_phy + lambda_ic*loss_ic + lambda_bc*loss_bc + lambda_cont*loss_cont
         loss.backward()
         optimizer.step()
         # scheduler.step()
@@ -322,11 +372,13 @@ def pipeline_2d():
 
             # Min/Max vom Modell auf Innenpunkten:
             with torch.no_grad():
-                u_pred_batch = model(xyt_batch)
+                # u_pred_batch = model(xyt_batch)
+                u_pred_batch, v_pred_batch = get_prediction(xyt_batch)
                 u_min = u_pred_batch.min().item()
                 u_max = u_pred_batch.max().item()
 
-                u_bc_pred = model(xyt_boundary)
+                # u_bc_pred = model(xyt_boundary)
+                u_bc_pred, v_bc_pred = get_prediction(xyt_boundary)
                 u_bc_min = u_bc_pred.min().item()
                 u_bc_max = u_bc_pred.max().item()
                 u_bc_mean = u_bc_pred.mean().item()
@@ -336,8 +388,8 @@ def pipeline_2d():
         
             xyt_small[:,2]=1e-3
             xyt_small.requires_grad_(True)
-            u_t_pred = torch.autograd.grad(model(xyt_small), xyt_small,
-                                           grad_outputs=torch.ones_like(model(xyt_small)),
+            u_t_pred = torch.autograd.grad(model(xyt_small)[0], xyt_small,
+                                           grad_outputs=torch.ones_like(model(xyt_small)[0]),
                                            create_graph=True)[0][:,2]
             print(f"Laufzeit: {time.time()-start_time:.4f} Sekunden")
             print(f"u_t_pred[:10] : ")
@@ -387,7 +439,9 @@ def pipeline_2d():
                 Yv.flatten(),
                 torch.full_like(Xv.flatten(), tval)
             ], dim=1).to(device)
-            u_pred = model(Xyt_vis).reshape(n_vis, n_vis).cpu().numpy()
+            # u_pred = model(Xyt_vis).reshape(n_vis, n_vis).cpu().numpy()
+            u_pred, v_pred = get_prediction(Xyt_vis)
+            u_pred = u_pred.reshape(n_vis, n_vis).cpu().numpy()
             u_frames.append(u_pred)
             u_mean = u_pred.mean()
             u_means.append(u_mean)
@@ -554,7 +608,9 @@ def pipeline_2d():
                 Yv.flatten(),
                 torch.full_like(Xv.flatten(), tval)
             ], dim=1)
-            u_pred = model(Xyt_vis).reshape(n_vis, n_vis).cpu().numpy()
+            # u_pred = model(Xyt_vis).reshape(n_vis, n_vis).cpu().numpy()
+            u_pred, v_pred = get_prediction(Xyt_vis.to(device))
+            u_pred = u_pred.reshape(n_vis, n_vis).cpu().numpy()
             u_frames.append(u_pred)
 
     u_frames = np.array(u_frames)

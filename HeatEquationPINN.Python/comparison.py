@@ -33,6 +33,7 @@ def generate_data(n_points, length, total_time, seed=None, device='cpu'):
 
 # SHOULD BE the pipeline of Aryal
 def pipeline1():
+    print("pipeline 1")
     set_seed(0)
     class PINN(nn.Module):
         def __init__(self , layers , neurons , activation=nn.Tanh()):
@@ -138,7 +139,7 @@ def pipeline1():
 
     ## Learning data
     leraning_rate = 1e-3
-    epochs = 20000
+    epochs = 3000
     
     ## NN Architecture
     hid_layers = 5
@@ -222,6 +223,7 @@ def pipeline1():
 
 # IS the pipeline of Aryal
 def pipeline_ref():
+    print("pipeline 2")
     set_seed(0)
     # Define the PINN model
     class PINN(nn.Module):

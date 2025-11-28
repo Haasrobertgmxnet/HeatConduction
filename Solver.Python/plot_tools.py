@@ -34,7 +34,7 @@ def single_plot(u_frame, lx, ly, title, cmap='hot', isolines=False, save_path=No
         plt.show()
 
 
-def anim_slide(u_frames, lx, ly, title, cmap ='hot', isolines = False):
+def anim_slide(u_frames, lx, ly, title, cmap ='hot', label="Temperature", isolines = False):
     u_frames = np.array(u_frames)
     results = u_frames
     nt_vis, nx, ny = results.shape
@@ -45,7 +45,7 @@ def anim_slide(u_frames, lx, ly, title, cmap ='hot', isolines = False):
     vmin, vmax = results.min(), results.max()
     cax = ax.imshow(results[0], origin='lower', extent=[0, lx, 0, ly],
                     cmap=cmap, vmin=vmin, vmax=vmax)
-    fig.colorbar(cax, label="Temperature")
+    fig.colorbar(cax, label=label)
 
     contours = None
     if isolines:

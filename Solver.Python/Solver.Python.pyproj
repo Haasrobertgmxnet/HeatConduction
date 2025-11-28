@@ -46,6 +46,9 @@
     <Compile Include="ibvp_data.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="int_methods.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="pinn_solver.py">
       <SubType>Code</SubType>
     </Compile>
@@ -55,6 +58,9 @@
     <Compile Include="result_data.py" />
     <Compile Include="result_frames.py" />
     <Compile Include="Solver.Python.py" />
+    <Compile Include="__init__.py">
+      <SubType>Code</SubType>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\HeatEquationPINN.Python\HeatEquationPINN.Python.pyproj">

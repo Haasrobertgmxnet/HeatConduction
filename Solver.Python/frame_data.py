@@ -36,7 +36,7 @@ class FrameData:
 # Example configurations
 
 # Coarse grid
-frame1 = FrameData(1.0, 1.0, 60.0, 30, 30, 288000)
+# frame1 = FrameData(1.0, 1.0, 60.0, 30, 30, 288000)
 
 # Medium grid
 frame1 = FrameData(1.0, 1.0, 60.0, 60, 60, 288000)
