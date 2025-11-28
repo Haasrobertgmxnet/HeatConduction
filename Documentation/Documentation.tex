@@ -8,7 +8,8 @@
 \usepackage{array}
 \usepackage{multicol}
 \usepackage{longtable}
-\usepackage{xcolor}
+%\usepackage{xcolor}
+\usepackage[dvipsnames]{xcolor}
 \usepackage[a4paper,margin=2.5cm]{geometry}
 \usepackage{setspace}
 \usepackage{comment}
@@ -31,6 +32,9 @@
 \theoremstyle{remark} % Bemerkungsstil
 \newtheorem{remark}{Remark}[section]
 
+\theoremstyle{remark}
+\newtheorem*{conclusion}{Conclusion}
+
 % Graphics
 \usepackage{graphicx}
 \usepackage{subcaption}
@@ -41,7 +45,7 @@
 \usetikzlibrary{positioning, shapes.geometric, arrows}
 
 % Colors
-\usepackage{xcolor}
+%\usepackage{xcolor}
 
 % Tables
 \usepackage{booktabs}
@@ -101,7 +105,7 @@
 \usepackage{lipsum} % für Blindtext
 
 % Farben
-\usepackage{xcolor}
+%\usepackage{xcolor}
 \usepackage{lmodern}
 \usepackage{fancyhdr}
 \usepackage{lastpage}
@@ -602,7 +606,7 @@ where $H$ is the Heaviside function which is one for $\tau > 0 $ and zero otherw
 \begin{equation}
 \wTemp (x,y,t)  = \int_0^1 \int_0^1  \Green (x,y,x',y', t ) \wTemp_0 (x',y') \mathrm{d}x' \mathrm{d}y' .
 \end{equation} \label{GreenForHomogenHeatC}
-Since $ \Laplace \Green = \delta $ in the sense of distributions adding a term $ \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t' $ to (\ref{GreenForHomogenHeatC}) allows (\ref{homogenHeatC}) to be extended by the function $f$. A solution $\wTemp$ of this inhomogenized problem is then given by
+Since $ \Laplace \Green = \delta $ in the sense of distributions adding a term $ \int_0^t\int_0^1 \int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t' $ to (\ref{GreenForHomogenHeatC}) allows (\ref{homogenHeatC}) to be extended by the function $f$. A solution $\wTemp$ of this inhomogeneous problem is then given by
 \begin{eqnarray} \label{GreenForPartiallyInhomogenHeatC}
 \wTemp (x,y,t)  & = & \int_0^1\!\int_0^1  \Green (x,y,x',y', t ) \wTemp_0 (x',y') \mathrm{d}x' \mathrm{d}y' \\
 & + & \int_0^t\!\int_0^1\!\int_0^1  \Green (x,y,x',y',t -t' ) f (x',y') \mathrm{d}x' \mathrm{d}y' \mathrm{d}t' . \label{GreenForPartiallyInhomogenHeatC2}
@@ -693,10 +697,13 @@ where we have applied the Gauss-Green theorem, see \cite[p. 288]{rudin1976} and 
 that is $ \| \uTemp \|_{L^\infty (\Omega )} =  \mathrm{sup}_{(x,y) \in \Omega } |\uTemp(x,y, t) | $ tends to infinity as $ t\rightarrow \infty $.
 \end{proof}
 
-The following important variant of Theorem \ref{w_stability_robin_bc} is straightforward:
+The following important variant of Theorem \ref{w_stability_robin_bc} is now straightforward and -even more important- the \emph{main result} of this paragraph:
 \begin{theorem}[Long-time stability of solutions $u$ of (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC})] \label{u_stability_robin_bc}
 The solution $u (x,y, t) $ of the inhomogeneous problem (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}) is uniformly bounded for all $(x,y, t) \in (0,1)^2 \times (0,\infty) $.
 \end{theorem}
+\begin{remark}
+This Theorem \ref{u_stability_robin_bc} warrants that solutions of (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}) will not blow up during time, rather they may approach to an equilibrium state. This is important to carry out robust and stable numerical calculations.
+\end{remark}
 %
 
 \section{Finite Difference Method}
@@ -788,9 +795,28 @@ Mean square error (MSE): Arithmetic mean of all squared local error terms $E^2 (
 \item
 Root mean square error (RMSE): Square root of the MSE.
 \end{enumerate}
-First we will use the simple MAE approach.
-Furthermore, the Green function as an exact solution formula allows for a closed form of the derivatives. 
+\begin{remark} \label{Green_derivatives}
+The Green function as an exact solution formula allows for a closed form of the derivatives. From the representation (\ref{GreenForPartiallyInhomogenHeatC}, \ref{GreenForPartiallyInhomogenHeatC2}) it is clear that derivatives only apply to Green's function:
+\begin{eqnarray*}
+\Laplace\Green (x,y,x',y',\tau ) & = & H(\tau ) \sum_{m,n \in I \times I } \Laplace \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot \mathrm{exp} (-\alpha (\mu^2_m + \lambda^2_n) \tau ) \\
+& = & - H(\tau ) \sum_{m,n \in I \times I } (\mu_m^2 + \lambda_n^2) \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot \mathrm{exp} (-\alpha (\mu^2_m + \lambda^2_n) \tau ),
+\end{eqnarray*}
+as well as for time derivatives 
+\begin{equation*}
+\frac{\partial}{\partial \tau } \Green (.,\tau ) = 
+\begin{cases}
+- \sum\limits_{m,n \in I \times I } \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot \frac{\mathrm{exp} (-\eta \tau )}{\eta }, & \text{ for } \tau > 0, \\
+\mathrm{lim}_{\tau \rightarrow 0+ } \left( - H(\tau )\sum\limits_{m,n \in I \times I } \phi_{m,n} (x,y) \phi_{m,n} (x', y' ) \cdot \frac{\mathrm{exp} (- \eta\tau )}{\eta } \right) , & \text{ for } \tau = 0 ,\\
+0, & \text{ otherwise, }
+\end{cases}
+\end{equation*}
+where $ \eta = \alpha (\mu^2_m + \lambda^2_n) $.
+\end{remark}
 %
+\begin{remark}
+For the solution calculated from Green's function we will use the derivatives given in Remark \ref{Green_derivatives} to calculate the PDE residual. We will not use the finite differences.
+\end{remark}
+
 \begin{remark} \label{two_t_frames}
 We will use two time frames: 
 \begin{itemize}
@@ -808,6 +834,10 @@ In view of Remark \ref{two_t_frames} the numerical differentiation wrt to time m
 \item
 The method involving the Green's function allows for exact time and space derivatives.
 \end{itemize}
+\end{remark}
+%
+\begin{remark}
+For the solutions of the two finite difference solvers we use time derivatives calculated on the \emph{Calculation Time Grid} to compute their PDE residuals.
 \end{remark}
 
 \subsubsection*{Boundary Residuals}
@@ -1014,7 +1044,7 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
 
 \subsubsection*{First results}
 
-
+Once calculated the solutions $u$ of (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}) the spatial means of each time step and for every solution method are shown in the following chart:
 \begin{figure}[H]
     \centering
 
@@ -1032,7 +1062,7 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
     \figtrule
 
     \vspace{2pt}
-    \textbf{Average Temperatures $T_{avg}$ (°C) over Time}
+    \textbf{Average Temperatures $T_{\mathrm{avg}}$ (°C) over Time}
     \vspace{1pt}
 
     \figmrule
@@ -1052,7 +1082,26 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
     %\vspace{1pt}
     \figbrule
 \end{figure}
+As first observation the solution of the explicit solver has a significantly steeper pitch at the beginning. Afterwards, i.e. when the equilibrium is approximately reached, the solution of the explicit solver remains on a higher level than the solutions of the other methods. In fact the mean values of the last time frames confirm this observation:
+\begin{table}[h!]
+\centering
+{\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{ccccc}
+\toprule
+\textbf{} & \textbf{Green} & \textbf{Explicit} & \textbf{Crank-Nicolson} & \textbf{PINN} \\
+\midrule
+\textbf{Last time frame} 
+  & 205.6 
+  & {\color{red}{\textbf{208.1}}}
+  & 205.6
+  & 204.8 \\
+\bottomrule
+\end{tabular}}
+\caption{Average Temperature (°C).}
+\label{avg_temps_table}
+\end{table}
 
+Then, let us turn to the PDE residuals. For every time frame and every solution method the MAE is taken over all inner points of the spatial domain.
 \begin{figure}[H]
     \centering
 
@@ -1090,7 +1139,46 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
     %\vspace{1pt}
     \figbrule
 \end{figure}
+As one observes the PDE residuals of the PINN solution a significantly larger than the ones of the other solutions. This observation is confirmed by the following table. The bet, i.e. minimal values are highlighted with green color.
+\begin{table}[h!]
+\centering
+{\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{ccccc}
+\toprule
+\textbf{} & \textbf{Green} & \textbf{Explicit} & \textbf{Crank-Nicolson} & \textbf{PINN} \\
+\midrule
+\textbf{Mean} 
+  & {\color{OliveGreen}{\textbf{1.64721e-09}}}
+  & 0.883604
+  & 4.60350e-05
+  & 0.602383 \\
+\textbf{Min} 
+  & {\color{OliveGreen}{\textbf{1.64720e-09}}}
+  & 1.98345e-08
+  & 1.74747e-08
+  & 0.389304 \\
+\textbf{Max} 
+  & {\color{OliveGreen}{\textbf{1.64721e-09}}}
+  & 11.3110
+  & 0.000371644
+  & 1.88751 \\
+\textbf{At end} 
+  & {\color{OliveGreen}{\textbf{1.64721e-09}}}
+  & 1.98345e-08
+  & 1.74747e-08
+  & 0.434483 \\
+\textbf{RMSE} 
+  & {\color{OliveGreen}{\textbf{3.52807e-16}}}
+  & 2.59904
+  & 9.35036e-05
+  & 0.374794 \\
+\bottomrule
+\end{tabular}}
+\caption{PDE residuals (rounded to 6 significant digits).}
+\label{PDE_residuals_table}
+\end{table}
 
+The residuals at the boundary are a short story:
 \begin{figure}[H]
     \centering
 
@@ -1121,13 +1209,52 @@ Relative error & 7.86\% & 3.92 \% & 3.73 \% \\
     \vspace{1pt}
     \figbrule
 
-    \caption{PDE Residuals (MAE) over time.}
+    \caption{Boundary Residuals (MAE) over time.}
     \label{fig:Bdry_res3}
 
     % Linie nach der Caption
     %\vspace{1pt}
     \figbrule
 \end{figure}
+Again, the Green's method provides the best residuals:
+\begin{table}[h!]
+\centering
+{\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{ccccc}
+\toprule
+ & \textbf{Green} & \textbf{Explicit} & \textbf{Crank-Nicolson} & \textbf{PINN} \\
+\midrule
+\textbf{Left} 
+  & {\color{ForestGreen}{\textbf{3.02923e-29}}}
+  & 3.81590e-13
+  & 2.27585
+  & 2.29066 \\
+\textbf{Right} 
+  & {\color{ForestGreen}{\textbf{1.69651e-21}}}
+  & 3.81590e-13
+  & 2.27585
+  & 2.50784 \\
+\textbf{Bottom} 
+  & {\color{ForestGreen}{\textbf{1.34632e-29}}}
+  & 3.81590e-13
+  & 2.27585
+  & 2.34630 \\
+\textbf{Top} 
+  & {\color{ForestGreen}{\textbf{1.69553e-21}}}
+  & 3.81590e-13
+  & 2.27585
+  & 2.35151 \\
+\bottomrule
+\end{tabular}}
+\caption{Boundary residuals (rounded to 6 significant digits).}
+\label{Bdry_residuals_table}
+\end{table}
+
+\begin{conclusion}
+The residual values in Table \ref{PDE_residuals_table} and Table \ref{Bdry_residuals_table} recommend to take the solution from the Green's function as reference solution for further comparisons.
+\end{conclusion}
+
+
 
 \begin{comment}
 \begin{figure}[H]
@@ -1369,13 +1496,9 @@ Explicit Solver& PINN\\
 % \section{Discussion}
 
 % \section{Appendix A Trained Models}
-\newpage
-\thispagestyle{empty}
-\null
-\newpage
-\thispagestyle{empty}
-\null
-\newpage
+%\newpage
+%\thispagestyle{empty}
+%\null
 \newpage
 \begin{thebibliography}{9}
 
