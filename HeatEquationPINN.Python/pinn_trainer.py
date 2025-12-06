@@ -1,30 +1,132 @@
+from math import e
 import os
-from dataclasses import dataclass, asdict
-import json
-
 os.sys.path.append("../Solver.Python")  # für ibvp_data import
 os.sys.path.append("..")  # für ibvp_data import
 
-# from Solver.Python.ibvp_data import ibvp1
+from dataclasses import dataclass, asdict
+import json
+
+import numpy as np
+from torch import _nested_from_padded_and_nested_example
+from torch.nn.modules import activation
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+from ibvp_data import IBVPData
 from ibvp_data import ibvp1
+
+from sampling_service import SamplingService
 from pinn import PINN
 
-def pipeline_2d():
-    print("pipeline_2d called")
-    import time
-    from token import STAR
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
+@dataclass
+class SolverConfig:
+    # adam parameters
+    adam_lr: float = 1e-3 # learning rate
+    adam_weight_decay: int  = 0 # L2 regularisation
+    adam_eps: float = 1e-8 # numerical stability
 
-    # -------------------------
-    # Parameter
-    # -------------------------
-    alpha = 1e-1 # 1.438e-7 # 0.001
-    lx, ly = 1.0, 1.0
-    nt = 100
-    nx, ny = 30, 30
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+@dataclass
+class SamplingConfig:
+    n_interior_samples: int = 3000
+    t0: float = 0.0
+    t_end: float = 1.0
+    x_min: float = 0.0
+    x_max: float = 1.0
+    y_min: float = 0.0
+    y_max: float = 1.0
+
+class Sampling:
+    def __init__(self, config: SamplingConfig):
+        self.config = config
+
+    def sample_interior_points_biased(self, xyt_all, n_samples=1024, frac_near0=0.3, t_eps=0.02):
+        n_total = xyt_all.shape[0]
+        n_near = int(n_samples * frac_near0)
+        # Indices mit t <= t_eps
+        mask_near = (xyt_all[:,2] <= t_eps).cpu().numpy()
+        idx_near_all = np.where(mask_near)[0]
+        selected = []
+
+        if len(idx_near_all) > 0:
+            take = min(n_near, len(idx_near_all))
+            perm = np.random.permutation(len(idx_near_all))[:take]
+            selected.extend(idx_near_all[perm].tolist())
+
+        # rest zufällig
+        n_rest = n_samples - len(selected)
+        rem = np.random.permutation(n_total)[:n_rest].tolist()
+        selected.extend(rem)
+
+        selected = torch.tensor(selected, dtype=torch.long, device=xyt_all.device)
+        return xyt_all[selected]
+
+@dataclass
+class TrainingConfig:
+    lambda_phy: float = 1.0
+    lambda_ic: float = 1.0
+    lambda_bc: float = 1.0
+    lambda_cont: float = 0.5
+    # eopchs and early stopping
+    epochs: int = 500 # 20000
+    patience: int = 500
+    trigger_times: int = 0
+    # learning rate scheduler parameters
+    gamma: float = 0.5
+    step_size: int = 6000
+    # data loader parameters
+    batch_size: int = 1000
+    shuffle: bool = True
+    num_workers: int = 0# number of subprocesses for data loading
+
+@dataclass
+class PINNConfig:
+    n_layers: int = 4
+    n_neurons: int = 50
+    activation: str = "tanh"
+
+class HeatProblem():
+    def __init__(self, ibvp_data: IBVPData):
+        self.ibvp_data = ibvp_data
+
+class PINNTrainer:
+    def __init__(self, solver_config: SolverConfig, sampling_config: SamplingConfig, training_config: TrainingConfig, pinn_config: PINNConfig, heat_problem: HeatProblem):
+        self.solver_config = solver_config
+        self.sampling_config = sampling_config
+        self.training_config = training_config
+        self.pinn_config = pinn_config
+        self.heat_problem = heat_problem
+        self.model = PINN(layers=pinn_config.n_layers, neurons=pinn_config.n_neurons)
+        self.optimizer = optim.Adam(self.model.parameters(), lr= self.solver_config.adam_lr, weight_decay= self.solver_config.adam_weight_decay, eps= self.solver_config.adam_eps)
+
+    def save_config(self, file_path: str):
+        config_dict = {
+            "solver_config": asdict(self.solver_config),
+            "pinn_config": asdict(self.pinn_config),
+            "heat_problem_config": self.heat_problem_config.ibvp_data
+        }
+        with open(file_path, 'w') as f:
+            json.dump(config_dict, f, indent=4)
+
+    def load_config(self, file_path: str):
+        pass
+
+    def train(self):
+        self.train_test()
+
+    def train_test(self):
+        for epoch in range(self.training_config.epochs):
+            print(epoch)
+
+def training_pipeline():
+    print("training_pipeline called")
+
+    solver_config = SolverConfig()
+    sampling_config = SamplingConfig()
+    training_config = TrainingConfig()
+    pinn_config = PINNConfig()
+    heat_problem = HeatProblem(ibvp1)
+    trainer = PINNTrainer(solver_config, sampling_config, training_config, pinn_config, heat_problem)
 
     # -------------------------
     # InputData
@@ -50,35 +152,15 @@ def pipeline_2d():
         def get_t_ic(self):
             return self.T[:, :, 0]
 
+
+    lx, ly = 1.0, 1.0
+    nt = 100
+    nx, ny = 30, 30
+    alpha = heat_problem.ibvp_data.alpha
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     xyt = InputData(lx, ly, 1.0, nx, ny, nt)
     # whole point cloud (N,3)
     XYT_all = xyt.get_xyt().to(device)
-
-
-
-    @dataclass
-    class PINNConfig:
-        n_interior_samples: int = 3000
-        lambda_phy: float = 1.0
-        lambda_ic: float = 1.0
-        lambda_bc: float = 1.0
-        lambda_cont: float = 0.5
-        # eopchs and early stopping
-        epochs: int = 20000
-        patience: int = 500
-        trigger_times: int = 0
-        # learning rate scheduler parameters
-        gamma: float = 0.5
-        step_size: int = 6000
-        # adam parameters
-        adam_lr: float = 1e-3 # learning rate
-        adam_weight_decay: int  = 0 # L2 regularisation
-        adam_eps: float = 1e-8 # numerical stability
-
-    PINN_config = PINNConfig()
-
-    with open("config.json", "w") as f:
-        json.dump(asdict(PINN_config), f, indent=2)
 
     # -------------------------
     # Model
@@ -95,27 +177,8 @@ def pipeline_2d():
         def forward(self, xyt):
             return self.model(xyt) + 25.0
 
-    # model = PINNHeat(hidden_size=50, n_hidden=5).to(device)
-    model = PINN(neurons=50, layers=5).to(device)
-    optimizer = optim.Adam(model.parameters(), lr= PINN_config.adam_lr, weight_decay= PINN_config.adam_weight_decay, eps= PINN_config.adam_eps)
-    # optimizer = optim.Adam(model.parameters(), lr= PINN_config.adam_lr)
-
-    # -------------------------
-    # Hilfsfunktionen
-    # -------------------------
-    def __gaussian2D(xyt, lx=1.0, ly=1.0, sigma=0.15):
-        # xyt: (N,3) oder (N,2) -> benutzt nur die ersten 2 Spalten
-        XY = xyt[:, :2]
-        cx, cy = lx/2.0, ly/2.0
-        r2 = (XY[:,0]-cx)**2 + (XY[:,1]-cy)**2
-        return torch.exp(-r2 / (2.0 * sigma**2)).unsqueeze(1)
-        # Normiere auf 1 (optional, aber konsistent)
-        g = g / (g.max().detach() + 1e-12)
-        return g
-
-    def initial_func1(xyt, scal=1.0, lx=1.0, ly=1.0, sigma=0.15):
-        print(f"initial_func, sigma : {sigma:.6}")
-        return scal * gaussian2D(xyt, lx, ly, sigma)
+    model = trainer.model
+    optimizer = trainer.optimizer
 
     def initial_func2(xyt, const_val=25.0):
         return torch.full_like(xyt[:,0], const_val)
@@ -124,10 +187,9 @@ def pipeline_2d():
         return initial_func2(xyt)
 
     def heat_source(xyt):
-        return 
-        return gaussian2D(xyt, 1.0, 1.0, 0.5)
+        return trainer.heat_problem.ibvp_data.heat_source(xyt[:, 0], xyt[:, 1])
 
-    def sample_interior_points(xyt, n_samples=1024):
+    def _sample_interior_points(xyt, n_samples=1024):
         n_total = xyt.shape[0]
         n = min(n_samples, n_total)
         idx = torch.randperm(n_total)[:n]
@@ -199,7 +261,6 @@ def pipeline_2d():
     def boundary_loss_robin(model, xyt_boundary, normal_vectors, a=None, b=None, c=None):
         # Neumann-Rand-Loss
         xyt_boundary = xyt_boundary.clone().detach().requires_grad_(True)
-        # u_boundary = model(xyt_boundary)
         u_boundary, v_boundary = get_prediction(xyt_boundary)
 
         grads_boundary = torch.autograd.grad(u_boundary, xyt_boundary,
@@ -216,73 +277,20 @@ def pipeline_2d():
             return 0.0
         return torch.mean((a*u_boundary + b*du_dn - c)**2)
 
-    # einfache Randpunkt-Generierung (Dirichlet)
-    def generate_boundary_points(x_min, x_max, y_min, y_max, t_min, t_max, n_per_side=50):
-        t_left = torch.rand(n_per_side,1)*(t_max-t_min)+t_min
-        y_left = torch.rand(n_per_side,1)*(y_max-y_min)+y_min
-        x_left = torch.full_like(y_left, x_min)
-        left = torch.cat([x_left, y_left, t_left], dim=1)
+    samp = SamplingService()
 
-        t_right = torch.rand(n_per_side,1)*(t_max-t_min)+t_min
-        y_right = torch.rand(n_per_side,1)*(y_max-y_min)+y_min
-        x_right = torch.full_like(y_right, x_max)
-        right = torch.cat([x_right, y_right, t_right], dim=1)
-
-        t_bottom = torch.rand(n_per_side,1)*(t_max-t_min)+t_min
-        x_bottom = torch.rand(n_per_side,1)*(x_max-x_min)+x_min
-        y_bottom = torch.full_like(x_bottom, y_min)
-        bottom = torch.cat([x_bottom, y_bottom, t_bottom], dim=1)
-
-        t_top = torch.rand(n_per_side,1)*(t_max-t_min)+t_min
-        x_top = torch.rand(n_per_side,1)*(x_max-x_min)+x_min
-        y_top = torch.full_like(x_top, y_max)
-        top = torch.cat([x_top, y_top, t_top], dim=1)
-
-        Xyt_b = torch.cat([left, right, bottom, top], dim=0)
-        return Xyt_b
-
-    def generate_boundary_points_and_normals(x_min, x_max, y_min, y_max, t_min, t_max, n_per_side=50):
-        # t als Zufallswerte für Randpunkte
-        t_rand = torch.rand(n_per_side,1)*(t_max - t_min) + t_min
-
-        # Linke Seite x=x_min
-        y_left = torch.rand(n_per_side,1)*(y_max - y_min) + y_min
-        x_left = torch.full_like(y_left, x_min)
-        normals_left = torch.tensor([[-1.0,0.0,0.0]]).repeat(n_per_side,1)
-
-        # Rechte Seite x=x_max
-        y_right = torch.rand(n_per_side,1)*(y_max - y_min) + y_min
-        x_right = torch.full_like(y_right, x_max)
-        normals_right = torch.tensor([[+1.0,0.0,0.0]]).repeat(n_per_side,1)
-
-        # Untere Seite y=y_min
-        x_bottom = torch.rand(n_per_side,1)*(x_max - x_min) + x_min
-        y_bottom = torch.full_like(x_bottom, y_min)
-        normals_bottom = torch.tensor([[0.0,-1.0,0.0]]).repeat(n_per_side,1)
-
-        # Obere Seite y=y_max
-        x_top = torch.rand(n_per_side,1)*(x_max - x_min) + x_min
-        y_top = torch.full_like(x_top, y_max)
-        normals_top = torch.tensor([[0.0,+1.0,0.0]]).repeat(n_per_side,1)
-
-        # Alle Punkte zusammensetzen
-        xyt_left   = torch.cat([x_left, y_left, t_rand], dim=1)
-        xyt_right  = torch.cat([x_right, y_right, t_rand], dim=1)
-        xyt_bottom = torch.cat([x_bottom, y_bottom, t_rand], dim=1)
-        xyt_top    = torch.cat([x_top, y_top, t_rand], dim=1)
-
-        xyt_boundary = torch.cat([xyt_left, xyt_right, xyt_bottom, xyt_top], dim=0)
-        normals_boundary = torch.cat([normals_left, normals_right, normals_bottom, normals_top], dim=0)
-
-        return xyt_boundary, normals_boundary
+    # -------------------------
+    # Interior points
+    # -------------------------
+    samp.calc_interior_samples(trainer.sampling_config.n_interior_samples)
+    xyt_batch = samp.interior_torch(device).requires_grad_(True)
 
     # -------------------------
     # Initial condition (IC) vorbereiten
     # -------------------------
-    x_ic = xyt.get_x_ic().flatten()
-    y_ic = xyt.get_y_ic().flatten()
-    t_ic = xyt.get_t_ic().flatten()
-    Xyt_ic = torch.stack([x_ic, y_ic, t_ic], dim=1).float().to(device)  # (nx*ny, 3)
+    samp.calc_initial_samples(2000)
+    Xyt_ic = samp.initial_torch(device)
+    Xyt_ic.requires_grad_(True)
     u_ic = initial_func(Xyt_ic).to(device)  # (N,1)
 
     # -------------------------
@@ -298,24 +306,28 @@ def pipeline_2d():
     # -------------------------
     # Boundary points (Dirichlet = 0 example)
     # -------------------------
-    # xyt_boundary = generate_boundary_points(0.0, lx, 0.0, ly, 0.0, 1.0, n_per_side=200).float().to(device)
-    xyt_boundary, normals = generate_boundary_points_and_normals(0.0, lx, 0.0, ly, 0.0, 1.0, n_per_side=200)
-    xyt_boundary = xyt_boundary.float().to(device)
-    u_boundary_target = 0.1*torch.ones(xyt_boundary.shape[0], 1, device=device)  # Dirichlet u=0 on boundary
+    samp.calc_boundary_samples_left(100)
+    samp.calc_boundary_samples_right(100)
+    samp.calc_boundary_samples_bottom(100)
+    samp.calc_boundary_samples_top(100)
+    xyt_boundary = samp.boundary_torch(device)
+
+    samp.calc_normals()
+    normals = samp.normals_torch(device)
 
     # -------------------------
     # Training
     # -------------------------
-    epochs = PINN_config.epochs
-    lambda_phy = PINN_config.lambda_phy
-    lambda_ic = PINN_config.lambda_ic
-    lambda_bc = PINN_config.lambda_bc
-    lambda_cont = PINN_config.lambda_cont
+    epochs = trainer.training_config.epochs
+    lambda_phy = trainer.training_config.lambda_phy
+    lambda_ic = trainer.training_config.lambda_ic
+    lambda_bc = trainer.training_config.lambda_bc
+    lambda_cont = trainer.training_config.lambda_cont
 
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer,
-        step_size= PINN_config.step_size,
-        gamma= PINN_config.gamma
+        step_size= trainer.training_config.step_size,
+        gamma= trainer.training_config.gamma
     )
 
     best_loss = float('inf')     # bester bisheriger Verlust
@@ -323,31 +335,20 @@ def pipeline_2d():
     trigger_times = 0  
 
     import time
-
     start_time = time.time()
     for epoch in range(epochs):
         optimizer.zero_grad()
-        # sample interior points
-        # xyt_batch = sample_interior_points(XYT_all, n_samples=4096).to(device)
-        xyt_batch = sample_interior_points_biased(XYT_all, n_samples= PINN_config.n_interior_samples).to(device)
-
-        # Spalte 2 (Index 2) ist t
-        mask = XYT_all[:, 2] == 0       # Bool-Maske für t==0
-        XYT_t0 = XYT_all[mask]          # Nur Zeilen mit t==0
-
+        
         # physics loss: f=None (homogene PDE). Wenn du eine Quelle willst, pass f=(N,1)
         loss_phy = physics_loss(model, xyt_batch, alpha, heat_source(xyt_batch))
 
         # initial condition loss (enforce u(x,y,t=0)=gaussian)
-        # u_pred_ic = model(Xyt_ic)
         u_pred_ic, _ = get_prediction(Xyt_ic)
         loss_ic = torch.mean((u_pred_ic - u_ic)**2)
-        # u_pred_ic_eps = model(Xyt_ic_eps)
         u_pred_ic_eps , _ = get_prediction(Xyt_ic_eps)
         loss_cont = torch.mean((u_pred_ic_eps - u_ic)**2)
 
-        # loss_bc = boundary_loss_dirichlet(model, xyt_boundary, 0*u_boundary_target)
-        loss_bc = boundary_loss_robin(model, xyt_boundary, normals, 0.0, 1.0, 0*u_boundary_target)
+        loss_bc = boundary_loss_robin(model, xyt_boundary, normals, 0.5, 1.0, 12.5)
 
         loss = lambda_phy*loss_phy + lambda_ic*loss_ic + lambda_bc*loss_bc + lambda_cont*loss_cont
         loss.backward()
@@ -360,13 +361,14 @@ def pipeline_2d():
             best_loss = current_loss
             trigger_times = 0
             # Optional: bestes Modell speichern
-            torch.save(model.state_dict(), "best_model.pt")
+            torch.save(model.state_dict(), "best_model__.pt")
         else:
             trigger_times += 1
             if trigger_times >= patience:
                 # print(f"Early stopping nach {epoch} Epochen ausgelöst!")
                 # Lade bestes Modell zurück
-                model.load_state_dict(torch.load("best_model.pt"))
+                # model.load_state_dict(torch.load("best_model__.pt"))
+                print("Ouch, early stopping triggered but continuing training...")
                 # break
         
         if epoch % 100 == 0 or epoch == epochs-1:

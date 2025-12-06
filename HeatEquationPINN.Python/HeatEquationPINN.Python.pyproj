@@ -25,10 +25,15 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="HeatEquationPINN.Python.py" />
+    <Compile Include="pinn.py" />
+    <Compile Include="pinn_trainer.py" />
     <Compile Include="pipeline_2d.py">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="pipeline_aryal.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="sampling_service.py">
       <SubType>Code</SubType>
     </Compile>
   </ItemGroup>

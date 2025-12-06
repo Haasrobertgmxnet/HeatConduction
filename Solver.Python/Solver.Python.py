@@ -196,13 +196,13 @@ def main():
     print(f"Reference ({name_ref}) PDE Residual Mean: {[float(x) for x in data_ref.R_pde_means]}")
 
     data_test = {
-        "Green": data_all["Green"],
+        #"Green": data_all["Green"],
         #"Explicit": data_all["Explicit"],
         #"Crank-Nicolson": data_all["Crank-Nicolson"],
-        #"PINN": data_all["PINN"]
+        "PINN": data_all["PINN"]
     }
     
-    data=data_all
+    data=data_test
     # Compute solutions + residuals
     for name, case in data.items():
         print(f"Processing: {name}")
@@ -217,7 +217,7 @@ def main():
     # Visualization Section (replaces old scattered plot code)
     # -------------------------------------------------------------------------
 
-    plot_on_screen = False
+    plot_on_screen = True
     lx, ly = frame1.lx, frame1.ly
     for name, case in data.items():
         if not plot_on_screen:
