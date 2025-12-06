@@ -1,7 +1,7 @@
-from math import e
+ï»¿from math import e
 import os
-os.sys.path.append("../Solver.Python")  # für ibvp_data import
-os.sys.path.append("..")  # für ibvp_data import
+os.sys.path.append("../Solver.Python")  # fÃ¼r ibvp_data import
+os.sys.path.append("..")  # fÃ¼r ibvp_data import
 
 from dataclasses import dataclass, asdict
 import json
@@ -53,7 +53,7 @@ class Sampling:
             perm = np.random.permutation(len(idx_near_all))[:take]
             selected.extend(idx_near_all[perm].tolist())
 
-        # rest zufällig
+        # rest zufÃ¤llig
         n_rest = n_samples - len(selected)
         rem = np.random.permutation(n_total)[:n_rest].tolist()
         selected.extend(rem)
@@ -68,7 +68,7 @@ class TrainingConfig:
     lambda_bc: float = 1.0
     lambda_cont: float = 0.5
     # eopchs and early stopping
-    epochs: int = 500 # 20000
+    epochs: int = 5000 # 20000
     patience: int = 500
     trigger_times: int = 0
     # learning rate scheduler parameters
@@ -177,8 +177,8 @@ def training_pipeline():
         def forward(self, xyt):
             return self.model(xyt) + 25.0
 
-    model = trainer.model
-    optimizer = trainer.optimizer
+    # model = trainer.model
+    # optimizer = trainer.optimizer
 
     def initial_func2(xyt, const_val=25.0):
         return torch.full_like(xyt[:,0], const_val)
@@ -187,7 +187,11 @@ def training_pipeline():
         return initial_func2(xyt)
 
     def heat_source(xyt):
-        return trainer.heat_problem.ibvp_data.heat_source(xyt[:, 0], xyt[:, 1])
+        # xyt: (N,3) Tensor
+        x = xyt[:, 0:1]
+        y = xyt[:, 1:2]
+        return trainer.heat_problem.ibvp_data.heat_source(x, y)
+
 
     def _sample_interior_points(xyt, n_samples=1024):
         n_total = xyt.shape[0]
@@ -213,7 +217,7 @@ def training_pipeline():
             perm = np.random.permutation(len(idx_near_all))[:take]
             selected.extend(idx_near_all[perm].tolist())
 
-        # rest zufällig
+        # rest zufÃ¤llig
         n_rest = n_samples - len(selected)
         rem = np.random.permutation(n_total)[:n_rest].tolist()
         selected.extend(rem)
@@ -222,60 +226,93 @@ def training_pipeline():
         return xyt_all[selected]
 
     def get_prediction(xyt):
-        u_pred = model(xyt)        # Shape: (N, 2)
-        return u_pred[:, 0:1], u_pred[:, 1:2]
+        pred = model(xyt)  # (N,3)
+        u = pred[:, 0:1]
+        v = pred[:, 1:2]
+        w = pred[:, 2:3]
+        return u, v, w
+
+    def consistency_loss(model, xyt):
+        xyt_req = xyt.clone().detach().requires_grad_(True)
+        pred = model(xyt_req)
+        u = pred[:, 0:1]
+        v_pred = pred[:, 1:2]
+        w_pred = pred[:, 2:3]
+
+        # echte Ableitungen via autograd
+        grads = torch.autograd.grad(
+            outputs=u,
+            inputs=xyt_req,
+            grad_outputs=torch.ones_like(u),
+            create_graph=True
+        )[0]
+
+        u_x = grads[:, 0:1]
+        u_y = grads[:, 1:2]
+        u_t = grads[:, 2:3]
+
+        # zweite Ableitungen
+        u_xx = torch.autograd.grad(
+            outputs=u_x, inputs=xyt_req,
+            grad_outputs=torch.ones_like(u_x),
+            create_graph=True
+        )[0][:,0:1]
+
+        u_yy = torch.autograd.grad(
+            outputs=u_y, inputs=xyt_req,
+            grad_outputs=torch.ones_like(u_y),
+            create_graph=True
+        )[0][:,1:2]
+
+        lap_u = u_xx + u_yy
+
+        loss_v = ((v_pred - u_t)**2).mean()
+        loss_w = ((w_pred - lap_u)**2).mean()
+
+        return loss_v, loss_w
+
 
     # physics loss: akzeptiert f=None oder f shape (N,1)
     # accepts auch heat_source(xyt) als Quelle
     def physics_loss(model, xyt, alpha, f=None):
-        xyt = xyt.clone().detach().requires_grad_(True)
-        # u = model(xyt)                    # (N,1)
-        u,v = get_prediction(xyt)
-        grads = torch.autograd.grad(outputs=u, inputs=xyt,
-                                    grad_outputs=torch.ones_like(u),
-                                    create_graph=True)[0]  # (N,3)
-        u_x = grads[:, 0:1]
-        u_y = grads[:, 1:2]
-        u_t = grads[:, 2:3]
-        u_xx = torch.autograd.grad(outputs=u_x, inputs=xyt,
-                                   grad_outputs=torch.ones_like(u_x),
-                                   create_graph=True)[0][:, 0:1]
-        u_yy = torch.autograd.grad(outputs=u_y, inputs=xyt,
-                                   grad_outputs=torch.ones_like(u_y),
-                                   create_graph=True)[0][:, 1:2]
+        """
+        PDE: u_t - alpha * (u_xx + u_yy) = f
+        Modell-Outputs: (u, v=u_t, w=Laplace(u))
+        """
+        pred = model(xyt)          # (N,3)
+        u = pred[:, 0:1]
+        v = pred[:, 1:2]
+        w = pred[:, 2:3]
 
         if f is None:
             f_tensor = torch.zeros_like(u)
         else:
-            f_tensor = f.clone().detach()
+            f_tensor = f
             if f_tensor.dim() == 1:
                 f_tensor = f_tensor.unsqueeze(1)
             f_tensor = f_tensor.to(u.device)
 
-        residual = u_t - alpha * (u_xx + u_yy) - f_tensor
-
-        res_v = v - u_t
-
-        return (residual**2).mean() + (res_v**2).mean()
+        residual = v - alpha * w - f_tensor
+        return (residual ** 2).mean()
 
     def boundary_loss_robin(model, xyt_boundary, normal_vectors, a=None, b=None, c=None):
-        # Neumann-Rand-Loss
+        if a is None or b is None or c is None:
+            return torch.tensor(0.0, device=xyt_boundary.device)
+
         xyt_boundary = xyt_boundary.clone().detach().requires_grad_(True)
-        u_boundary, v_boundary = get_prediction(xyt_boundary)
 
-        grads_boundary = torch.autograd.grad(u_boundary, xyt_boundary,
-                                             torch.ones_like(u_boundary),
-                                             create_graph=True)[0]
-        # Skalarprodukt Gradient mit Normalenrichtung
+        pred = model(xyt_boundary)
+        u_boundary = pred[:, 0:1]   # nur u
+
+        grads_boundary = torch.autograd.grad(
+            outputs=u_boundary,
+            inputs=xyt_boundary,
+            grad_outputs=torch.ones_like(u_boundary),
+            create_graph=True
+        )[0]  # (N,3)
+
         du_dn = torch.sum(grads_boundary * normal_vectors, dim=1, keepdim=True)
-
-        if a is None:
-            return 0.0
-        if b is None:
-            return 0.0
-        if c is None:
-            return 0.0
-        return torch.mean((a*u_boundary + b*du_dn - c)**2)
+        return torch.mean((a * u_boundary + b * du_dn - c) ** 2)
 
     samp = SamplingService()
 
@@ -283,20 +320,26 @@ def training_pipeline():
     # Interior points
     # -------------------------
     samp.calc_interior_samples(trainer.sampling_config.n_interior_samples)
-    xyt_batch = samp.interior_torch(device).requires_grad_(True)
+    # xyt_batch = samp.get_interior_samples_torch(device).requires_grad_(True)
+    # Interior points (biased near t=0)
+    samp.calc_interior_samples(trainer.sampling_config.n_interior_samples)
+    xyt_interior_all = samp.get_interior_samples_biased_t0(
+        n_samples=trainer.sampling_config.n_interior_samples,
+        device=device
+    ).float()
 
     # -------------------------
     # Initial condition (IC) vorbereiten
     # -------------------------
     samp.calc_initial_samples(2000)
-    Xyt_ic = samp.initial_torch(device)
+    Xyt_ic = samp.get_initial_samples_torch(device)
     Xyt_ic.requires_grad_(True)
     u_ic = initial_func(Xyt_ic).to(device)  # (N,1)
 
     # -------------------------
-    # 3) Trainingsparameter für Continuity-Loss
+    # 3) Trainingsparameter fÃ¼r Continuity-Loss
     # -------------------------
-    eps_time = 1e-3   # kleines Zeit-Offset, prüfe auch größere Werte (1e-2)
+    eps_time = 1e-3   # kleines Zeit-Offset, prÃ¼fe auch grÃ¶ÃŸere Werte (1e-2)
 
     # Erzeuge Xyt_ic_eps einmal (t = eps_time)
     Xyt_ic_eps = Xyt_ic.clone().detach()
@@ -310,14 +353,17 @@ def training_pipeline():
     samp.calc_boundary_samples_right(100)
     samp.calc_boundary_samples_bottom(100)
     samp.calc_boundary_samples_top(100)
-    xyt_boundary = samp.boundary_torch(device)
+    xyt_boundary = samp.get_boundary_samples_torch(device)
 
     samp.calc_normals()
-    normals = samp.normals_torch(device)
+    normals = samp.get_normals_torch(device)
 
     # -------------------------
     # Training
     # -------------------------
+    model = trainer.model.to(device)
+    optimizer = trainer.optimizer
+
     epochs = trainer.training_config.epochs
     lambda_phy = trainer.training_config.lambda_phy
     lambda_ic = trainer.training_config.lambda_ic
@@ -326,87 +372,106 @@ def training_pipeline():
 
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer,
-        step_size= trainer.training_config.step_size,
-        gamma= trainer.training_config.gamma
+        step_size=trainer.training_config.step_size,
+        gamma=trainer.training_config.gamma
     )
 
-    best_loss = float('inf')     # bester bisheriger Verlust
-    patience = 500               # Anzahl Epochen ohne Verbesserung, bevor wir abbrechen
-    trigger_times = 0  
+    # Interior, Initial, Boundary Daten aus SamplingService holen
+    xyt_interior_all = samp.get_interior_samples_torch(device=device).float()
+    Xyt_ic = samp.get_initial_samples_torch(device=device).float()
+    u_ic = initial_func(Xyt_ic).unsqueeze(1).to(device)  # (N,1)
+
+    eps_time = 1e-3
+    Xyt_ic_eps = Xyt_ic.clone().detach()
+    Xyt_ic_eps[:, 2] = eps_time
+
+    xyt_boundary = samp.get_boundary_samples_torch(device=device).float()
+    normals = samp.get_normals_torch(device=device).float()
+
+    best_loss = float("inf")
+    patience = trainer.training_config.patience
+    trigger_times = 0
 
     import time
     start_time = time.time()
-    for epoch in range(epochs):
-        optimizer.zero_grad()
-        
-        # physics loss: f=None (homogene PDE). Wenn du eine Quelle willst, pass f=(N,1)
-        loss_phy = physics_loss(model, xyt_batch, alpha, heat_source(xyt_batch))
 
-        # initial condition loss (enforce u(x,y,t=0)=gaussian)
-        u_pred_ic, _ = get_prediction(Xyt_ic)
-        loss_ic = torch.mean((u_pred_ic - u_ic)**2)
-        u_pred_ic_eps , _ = get_prediction(Xyt_ic_eps)
-        loss_cont = torch.mean((u_pred_ic_eps - u_ic)**2)
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+
+        # hier konsequent eins: unbiased ODER biased
+        xyt_batch = xyt_interior_all.requires_grad_(True)
+
+        f_batch = heat_source(xyt_batch)
+        loss_phy = physics_loss(model, xyt_batch, alpha, f_batch)
+
+        u_pred_ic, _, _ = get_prediction(Xyt_ic)
+        loss_ic = torch.mean((u_pred_ic - u_ic) ** 2)
+
+        u_pred_ic_eps, _, _ = get_prediction(Xyt_ic_eps)
+        loss_cont = torch.mean((u_pred_ic_eps - u_ic) ** 2)
 
         loss_bc = boundary_loss_robin(model, xyt_boundary, normals, 0.5, 1.0, 12.5)
 
-        loss = lambda_phy*loss_phy + lambda_ic*loss_ic + lambda_bc*loss_bc + lambda_cont*loss_cont
+        loss_v, loss_w = consistency_loss(model, xyt_batch)
+
+        loss = (
+            lambda_phy * loss_phy
+            + lambda_ic * loss_ic
+            + lambda_bc * loss_bc
+            + lambda_cont * loss_cont
+            + 0.1 * loss_v       # Gewicht anpassen!
+            + 0.1 * loss_w       # Gewicht anpassen!
+        )
+
+
+        # loss = lambda_phy * loss_phy + lambda_ic * loss_ic + lambda_bc * loss_bc + lambda_cont * loss_cont
+
+        if torch.isnan(loss) or torch.isinf(loss):
+            print(f"[WARN] NaN/Inf in Loss bei Epoch {epoch}, phy={loss_phy.item():.3e}")
+            continue
+
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        # scheduler.step()
+        scheduler.step()
 
         current_loss = loss.item()
 
-        if current_loss < best_loss - 1e-20:  # 1e-6 = kleine Toleranz
+        if current_loss < best_loss - 1e-8:
             best_loss = current_loss
             trigger_times = 0
-            # Optional: bestes Modell speichern
             torch.save(model.state_dict(), "best_model__.pt")
         else:
             trigger_times += 1
             if trigger_times >= patience:
-                # print(f"Early stopping nach {epoch} Epochen ausgelöst!")
-                # Lade bestes Modell zurück
-                # model.load_state_dict(torch.load("best_model__.pt"))
-                print("Ouch, early stopping triggered but continuing training...")
-                # break
-        
-        if epoch % 100 == 0 or epoch == epochs-1:
+                print(f"Early stopping nach {epoch} Epochen (beste Loss={best_loss:.4e})")
+                break
 
-            # Min/Max vom Modell auf Innenpunkten:
+        if epoch % 100 == 0 or epoch == epochs - 1:
+            model.eval()
             with torch.no_grad():
-                # u_pred_batch = model(xyt_batch)
-                u_pred_batch, v_pred_batch = get_prediction(xyt_batch)
+                u_pred_batch, v_pred_batch, w_pred_batch = get_prediction(xyt_batch)
                 u_min = u_pred_batch.min().item()
                 u_max = u_pred_batch.max().item()
 
-                # u_bc_pred = model(xyt_boundary)
-                u_bc_pred, v_bc_pred = get_prediction(xyt_boundary)
+                u_bc_pred, _, _ = get_prediction(xyt_boundary)
                 u_bc_min = u_bc_pred.min().item()
                 u_bc_max = u_bc_pred.max().item()
                 u_bc_mean = u_bc_pred.mean().item()
-                # u_bc_rms = u_bc_pred.rms().item()
 
-            xyt_small = Xyt_ic.clone()
-        
-            xyt_small[:,2]=1e-3
-            xyt_small.requires_grad_(True)
-            u_t_pred = torch.autograd.grad(model(xyt_small)[0], xyt_small,
-                                           grad_outputs=torch.ones_like(model(xyt_small)[0]),
-                                           create_graph=True)[0][:,2]
-            print(f"Laufzeit: {time.time()-start_time:.4f} Sekunden")
-            print(f"u_t_pred[:10] : ")
-            print({u_t_pred[:10]})
-
-            print(f"Epoch {epoch:5d}: total={loss.item():.6e}, "
-                  f"phy={loss_phy.item():.6e}, ic={loss_ic.item():.6e}, bc={loss_bc.item():.6e}, "
-                  f"u_min={u_min:.4f}, u_max={u_max:.4f}, u_bc_min={u_bc_min:.4f}, u_bc_max={u_bc_max:.4f}, u_bc_mean={u_bc_mean:.4f}, u_t_pred[:10] : {u_t_pred[:10]}")
-            current_lr = optimizer.param_groups[0]['lr']
-            print(f"Epoch {epoch}, aktuelle Lernrate = {current_lr:.2e}")
-            print(f"Epoch {epoch:5d}, Loss: {current_loss:.6e}, Beste bisher: {best_loss:.6e}")
-        
+            print(f"Laufzeit: {time.time() - start_time:.2f}s")
+            print(
+                f"Epoch {epoch:5d}: total={loss.item():.6e}, "
+                f"phy={loss_phy.item():.6e}, ic={loss_ic.item():.6e}, "
+                f"bc={loss_bc.item():.6e}, cont={loss_cont.item():.6e}, "
+                f"u_min={u_min:.4f}, u_max={u_max:.4f}, "
+                f"u_bc_min={u_bc_min:.4f}, u_bc_max={u_bc_max:.4f}, "
+                f"u_bc_mean={u_bc_mean:.4f}, best={best_loss:.6e}"
+            )
 
     print("Training completed!")
+
 
     # -------------------------
     # Prediction
@@ -418,15 +483,15 @@ def training_pipeline():
     from matplotlib.widgets import Slider, Button
 
     # -------------------------
-    # Abfragepunkte fürs Visualisieren
+    # Abfragepunkte fÃ¼rs Visualisieren
     # -------------------------
-    n_vis = 100  # Auflösung
+    n_vis = 100  # AuflÃ¶sung
     x_vis = torch.linspace(0, lx, n_vis)
     y_vis = torch.linspace(0, ly, n_vis)
     t_vis = torch.linspace(0, 1.0, 100)
     Xv, Yv = torch.meshgrid(x_vis, y_vis, indexing='ij')
 
-    # shape für 2D-Darstellung
+    # shape fÃ¼r 2D-Darstellung
     nx_ic = xyt.get_x_ic().shape[0]
     ny_ic = xyt.get_y_ic().shape[1]
 
@@ -443,7 +508,7 @@ def training_pipeline():
                 torch.full_like(Xv.flatten(), tval)
             ], dim=1).to(device)
             # u_pred = model(Xyt_vis).reshape(n_vis, n_vis).cpu().numpy()
-            u_pred, v_pred = get_prediction(Xyt_vis)
+            u_pred, v_pred, w_pred = get_prediction(Xyt_vis)
             u_pred = u_pred.reshape(n_vis, n_vis).cpu().numpy()
             u_frames.append(u_pred)
             u_mean = u_pred.mean()
@@ -458,7 +523,7 @@ def training_pipeline():
 
     
 
-    # Slider animation function für ML-Lösung
+    # Slider animation function fÃ¼r ML-LÃ¶sung
     def anim_slide():
         results = u_frames
         nt_vis, nx, ny = results.shape
@@ -596,7 +661,7 @@ def training_pipeline():
 
     from matplotlib.widgets import Slider
 
-    # Visualisiere die Lösung als Funktion der Zeit
+    # Visualisiere die LÃ¶sung als Funktion der Zeit
     n_vis = 30
     x_vis = torch.linspace(0, lx, n_vis)
     y_vis = torch.linspace(0, ly, n_vis)

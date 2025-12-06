@@ -1,38 +1,31 @@
-import torch
+﻿import torch
 import torch.nn as nn
 
 class PINN(nn.Module):
     """
-    Fully-connected feedforward neural network that approximates u(x, y, t).
+    Fully-connected feedforward neural network that approximates:
+      u(x,y,t), v(x,y,t)=u_t, w(x,y,t)=u_xx+u_yy
 
-    Architecture:
-    - Input dimension = 3 (x, y, t)
-    - Several hidden layers of width `neurons` using activation function
-    - Output is a single scalar value u(x, y, t)
+    Input:  (x,y,t) ∈ R^3
+    Output: (u,v,w) ∈ R^3
     """
-    def __init__(self , layers , neurons , activation=nn.Tanh()):
-        print("PINN __init__ called")
-        super(PINN , self).__init__()
+    def __init__(self, layers, neurons, activation=nn.Tanh()):
+        super(PINN, self).__init__()
         self.activation = activation
+
         self.layers = nn.ModuleList()
-        self.layers.append(nn.Linear(3, neurons))  # input layer: (x,y,t)
+        # Input layer
+        self.layers.append(nn.Linear(3, neurons))
+        # Hidden layers
         for _ in range(layers - 1):
-            self.layers.append(nn.Linear(neurons , neurons))  # hidden layers
-        self.layers.append(nn.Linear(neurons , 1))  # final output layer
+            self.layers.append(nn.Linear(neurons, neurons))
+        # Output layer: 3 Kanäle (u,v,w)
+        self.out_layer = nn.Linear(neurons, 3)
 
     def forward(self, *inputs):
         """
-        Forward pass of the neural network.
-
-        Parameters
-        ----------
-        *inputs: ptr to tensor of shape either (N,3), or (N, 1)
-            Coordinates to evaluate the network at.
-
-        Returns
-        -------
-        u : tensor of shape (N, 1)
-            Predicted temperature at the given points.
+        forward(x, y, t) oder forward(xyt)
+        -> Tensor (N,3): [u, v, w]
         """
         if len(inputs) == 3:
             x, y, t = inputs
@@ -42,31 +35,13 @@ class PINN(nn.Module):
         else:
             raise ValueError("Expected (x,y,t) or (xyt) as input.")
 
-        out = xyt
-        for layer in self.layers[:-1]:
-            out = self.activation(layer(out))
+        h = xyt
+        for layer in self.layers:
+            h = self.activation(layer(h))
 
-        out = self.layers[-1](out)
+        out = self.out_layer(h)  # (N,3)
 
-        return out + 25.0
-
-    def __forward(self, x, y, t):
-        """
-        Forward pass of the neural network.
-
-        Parameters
-        ----------
-        x, y, t : tensor of shape (N, 1)
-            Coordinates to evaluate the network at.
-
-        Returns
-        -------
-        u : tensor of shape (N, 1)
-            Predicted temperature at the given points.
-        """
-        inputs = torch.cat([x, y, t], dim=1)
-        output = inputs
-        for layer in self.layers[:-1]:
-            output = self.activation(layer(output))
-        output = self.layers[-1](output) + 25  # shift baseline temperature
-        return output
+        # nur u bekommt den +25 Offset
+        u = out[:, 0:1] + 25.0
+        vw = out[:, 1:]
+        return torch.cat([u, vw], dim=1)  # (N,3)
