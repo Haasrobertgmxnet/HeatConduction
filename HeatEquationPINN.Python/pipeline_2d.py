@@ -96,7 +96,7 @@ def pipeline_2d():
             return self.model(xyt) + 25.0
 
     # model = PINNHeat(hidden_size=50, n_hidden=5).to(device)
-    model = PINN(neurons=50, layers=5).to(device)
+    model = PINN(neurons=50, hid_layers=5).to(device)
     optimizer = optim.Adam(model.parameters(), lr= PINN_config.adam_lr, weight_decay= PINN_config.adam_weight_decay, eps= PINN_config.adam_eps)
     # optimizer = optim.Adam(model.parameters(), lr= PINN_config.adam_lr)
 

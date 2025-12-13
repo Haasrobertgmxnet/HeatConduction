@@ -1,707 +1,422 @@
-﻿from math import e
-import os
-os.sys.path.append("../Solver.Python")  # für ibvp_data import
-os.sys.path.append("..")  # für ibvp_data import
+﻿# pinn_trainer.py
 
-from dataclasses import dataclass, asdict
-import json
+import os
+os.sys.path.append("..")
+
+import time
+from dataclasses import dataclass
 
 import numpy as np
-from torch import _nested_from_padded_and_nested_example
-from torch.nn.modules import activation
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import matplotlib.pyplot as plt
 
-from ibvp_data import IBVPData
-from ibvp_data import ibvp1
-
-from sampling_service import SamplingService
 from pinn import PINN
+from sampling_service import SamplingService, SamplingConfig
+from ibvp_data import ibvp1, IBVPData
 
-@dataclass
-class SolverConfig:
-    # adam parameters
-    adam_lr: float = 1e-3 # learning rate
-    adam_weight_decay: int  = 0 # L2 regularisation
-    adam_eps: float = 1e-8 # numerical stability
+from plot_tools import animate_heatmap
 
-@dataclass
-class SamplingConfig:
-    n_interior_samples: int = 3000
-    t0: float = 0.0
-    t_end: float = 1.0
-    x_min: float = 0.0
-    x_max: float = 1.0
-    y_min: float = 0.0
-    y_max: float = 1.0
+from training_utils import (
+    apply_warmup,
+    apply_scheduler,
+    apply_adaptive_lr,
+    maybe_clip_gradients,
+    log_training,
+    early_stopping,
+    early_stopping_t,
+    load_model,
+    loss_number
+)
 
-class Sampling:
-    def __init__(self, config: SamplingConfig):
-        self.config = config
-
-    def sample_interior_points_biased(self, xyt_all, n_samples=1024, frac_near0=0.3, t_eps=0.02):
-        n_total = xyt_all.shape[0]
-        n_near = int(n_samples * frac_near0)
-        # Indices mit t <= t_eps
-        mask_near = (xyt_all[:,2] <= t_eps).cpu().numpy()
-        idx_near_all = np.where(mask_near)[0]
-        selected = []
-
-        if len(idx_near_all) > 0:
-            take = min(n_near, len(idx_near_all))
-            perm = np.random.permutation(len(idx_near_all))[:take]
-            selected.extend(idx_near_all[perm].tolist())
-
-        # rest zufällig
-        n_rest = n_samples - len(selected)
-        rem = np.random.permutation(n_total)[:n_rest].tolist()
-        selected.extend(rem)
-
-        selected = torch.tensor(selected, dtype=torch.long, device=xyt_all.device)
-        return xyt_all[selected]
+# =============================================================================
+# KONFIGURATION
+# =============================================================================
 
 @dataclass
 class TrainingConfig:
+    # Loss-Gewichte
     lambda_phy: float = 1.0
     lambda_ic: float = 1.0
     lambda_bc: float = 1.0
-    lambda_cont: float = 0.5
-    # eopchs and early stopping
-    epochs: int = 5000 # 20000
-    patience: int = 500
-    trigger_times: int = 0
-    # learning rate scheduler parameters
-    gamma: float = 0.5
-    step_size: int = 6000
-    # data loader parameters
-    batch_size: int = 1000
-    shuffle: bool = True
-    num_workers: int = 0# number of subprocesses for data loading
+    lambda_cont: float = 1.0
+
+    # Learning Rate and Schedules
+    lr: float = 1e-3 # 5e-4
+    min_lr: float = 1e-6
+    max_lr: float = 5e-3
+    warmup_steps: int = 500
+
+    use_warmup: bool = False
+    use_cosine_annealing: bool = False
+    use_adaptive_lr: bool = True
+
+    # Gradient Clipping
+    use_gradient_clipping: bool = False
+    grad_clip_norm: float = 1.0
+
+    # Logging
+    use_logging: bool = True
+    log_interval: int = 100
+
+    # Early stopping
+    use_early_stopping: bool = True
+    patience: int = 2000
+    min_delta: float = 1e-6
+    ema_alpha: float = 0.1
+
+    # Epochen
+    epochs: int = 12000
+
 
 @dataclass
 class PINNConfig:
-    n_layers: int = 4
+    n_hid_layers: int = 5
     n_neurons: int = 50
-    activation: str = "tanh"
+    use_fourier = False
+    m_fourier: int = 12
+    fourier_scale: float = 2.0
 
-class HeatProblem():
-    def __init__(self, ibvp_data: IBVPData):
-        self.ibvp_data = ibvp_data
 
-class PINNTrainer:
-    def __init__(self, solver_config: SolverConfig, sampling_config: SamplingConfig, training_config: TrainingConfig, pinn_config: PINNConfig, heat_problem: HeatProblem):
-        self.solver_config = solver_config
-        self.sampling_config = sampling_config
-        self.training_config = training_config
-        self.pinn_config = pinn_config
-        self.heat_problem = heat_problem
-        self.model = PINN(layers=pinn_config.n_layers, neurons=pinn_config.n_neurons)
-        self.optimizer = optim.Adam(self.model.parameters(), lr= self.solver_config.adam_lr, weight_decay= self.solver_config.adam_weight_decay, eps= self.solver_config.adam_eps)
+# =============================================================================
+# Autograd-Helfer
+# =============================================================================
 
-    def save_config(self, file_path: str):
-        config_dict = {
-            "solver_config": asdict(self.solver_config),
-            "pinn_config": asdict(self.pinn_config),
-            "heat_problem_config": self.heat_problem_config.ibvp_data
-        }
-        with open(file_path, 'w') as f:
-            json.dump(config_dict, f, indent=4)
+@torch.no_grad()
+def predict_u(model, xyt: torch.Tensor) -> torch.Tensor:
+    """
+    Schnelle Vorhersage nur von u(x,y,t).
+    Kein Autograd notwendig, ideal für Animationen und Auswertung.
+    """
+    return model(xyt)[:, 0:1]
 
-    def load_config(self, file_path: str):
-        pass
 
-    def train(self):
-        self.train_test()
+def predict_u_and_derivs(model, xyt: torch.Tensor):
+    """
+    Liefert (u, u_t, laplace(u)) für ein Modell mit EINEM Output u.
+    Funktioniert für Training und Analyse.
+    """
+    # xyt GRAD-SICHER machen – aber KEIN detach()
+    if not xyt.requires_grad:
+        xyt = xyt.clone().requires_grad_(True)
 
-    def train_test(self):
-        for epoch in range(self.training_config.epochs):
-            print(epoch)
+    # Forward-Pass muss unter Autograd laufen
+    u = model(xyt)  # (N,1)
+    if not u.requires_grad:
+        raise RuntimeError("predict_u_and_derivs: u hat requires_grad=False → Fehlerquelle!")
+
+    # Erste Ableitung
+    grads = torch.autograd.grad(
+        outputs=u,
+        inputs=xyt,
+        grad_outputs=torch.ones_like(u),
+        create_graph=True,
+        retain_graph=True
+    )[0]
+
+    u_x = grads[:, 0:1]
+    u_y = grads[:, 1:2]
+    u_t = grads[:, 2:3]
+
+    # Zweite Ableitungen
+    u_xx = torch.autograd.grad(
+        outputs=u_x,
+        inputs=xyt,
+        grad_outputs=torch.ones_like(u_x),
+        create_graph=True,
+        retain_graph=True
+    )[0][:, 0:1]
+
+    u_yy = torch.autograd.grad(
+        outputs=u_y,
+        inputs=xyt,
+        grad_outputs=torch.ones_like(u_y),
+        create_graph=True,
+        retain_graph=True
+    )[0][:, 1:2]
+
+    lap_u = u_xx + u_yy
+    return u, u_t, lap_u
+
+# =============================================================================
+# TRAINING PIPELINE
+# =============================================================================
 
 def training_pipeline():
-    print("training_pipeline called")
 
-    solver_config = SolverConfig()
-    sampling_config = SamplingConfig()
-    training_config = TrainingConfig()
-    pinn_config = PINNConfig()
-    heat_problem = HeatProblem(ibvp1)
-    trainer = PINNTrainer(solver_config, sampling_config, training_config, pinn_config, heat_problem)
+    print("Training gestartet...")
+    seed = 35
+    torch.manual_seed(seed)
+    # seed = 24
+    # np.random.seed(seed)
 
-    # -------------------------
-    # InputData
-    # -------------------------
-    class InputData:
-        def __init__(self, lx, ly, lt, nx, ny, nt):
-            x = torch.linspace(0, lx, nx, dtype=torch.float32)
-            y = torch.linspace(0, ly, ny, dtype=torch.float32)
-            t = torch.linspace(0, lt, nt, dtype=torch.float32)
-            self.X, self.Y, self.T = torch.meshgrid(x, y, t, indexing='ij')
-            self.Xyt = torch.stack([self.X.flatten(), self.Y.flatten(), self.T.flatten()], dim=1).float()
-            self.Xyt.requires_grad_(True)
+    from sampling_service import make_affine_transform
+    
+    sampling_cfg = SamplingConfig(n_interior_samples = 1000, n_initial_samples  = 100, n_boundary_samples = 100)
+    training_cfg = TrainingConfig()
+    pinn_cfg = PINNConfig()
 
-        def get_xyt(self):
-            return self.Xyt
+    # IBVP-Daten kopieren
+    heat_problem: IBVPData = ibvp1.copy()
+    alpha = heat_problem.alpha
 
-        def get_x_ic(self):
-            return self.X[:, :, 0]
-
-        def get_y_ic(self):
-            return self.Y[:, :, 0]
-
-        def get_t_ic(self):
-            return self.T[:, :, 0]
-
-
-    lx, ly = 1.0, 1.0
-    nt = 100
-    nx, ny = 30, 30
-    alpha = heat_problem.ibvp_data.alpha
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    xyt = InputData(lx, ly, 1.0, nx, ny, nt)
-    # whole point cloud (N,3)
-    XYT_all = xyt.get_xyt().to(device)
+    print(f"Using device: {device}")
 
-    # -------------------------
-    # Model
-    # -------------------------
-    class PINNHeat(nn.Module):
-        def __init__(self, hidden_size=50, n_hidden=5, activation=nn.Tanh()):
-            super().__init__()
-            layers = [nn.Linear(3, hidden_size), activation]
-            for _ in range(n_hidden-1):
-                layers += [nn.Linear(hidden_size, hidden_size), activation]
-            layers += [nn.Linear(hidden_size, 2)]
-            self.model = nn.Sequential(*layers)
+    # ----------------------------------------
+    # Modell (Fourier-PINN oder MLP je nach pinn.py)
+    # ----------------------------------------
+    model = PINN(
+        hid_layers=pinn_cfg.n_hid_layers,
+        neurons=pinn_cfg.n_neurons,
+        activation=nn.Tanh(),
+        use_fourier=pinn_cfg.use_fourier,
+        m_fourier=pinn_cfg.m_fourier,
+        fourier_scale=pinn_cfg.fourier_scale
+    ).to(device)
 
-        def forward(self, xyt):
-            return self.model(xyt) + 25.0
-
-    # model = trainer.model
-    # optimizer = trainer.optimizer
-
-    def initial_func2(xyt, const_val=25.0):
-        return torch.full_like(xyt[:,0], const_val)
-
-    def initial_func(xyt):
-        return initial_func2(xyt)
-
-    def heat_source(xyt):
-        # xyt: (N,3) Tensor
-        x = xyt[:, 0:1]
-        y = xyt[:, 1:2]
-        return trainer.heat_problem.ibvp_data.heat_source(x, y)
-
-
-    def _sample_interior_points(xyt, n_samples=1024):
-        n_total = xyt.shape[0]
-        n = min(n_samples, n_total)
-        idx = torch.randperm(n_total)[:n]
-        return xyt[idx]
-
-    # -------------------------
-    # 2) Biased Sampler: mehr Punkte in kleinem Zeitfenster nahe t=0
-    # More points where the initial condition is applied
-    # -------------------------
-    import numpy as np
-    def sample_interior_points_biased(xyt_all, n_samples=1024, frac_near0=0.3, t_eps=0.02):
-        n_total = xyt_all.shape[0]
-        n_near = int(n_samples * frac_near0)
-        # Indices mit t <= t_eps
-        mask_near = (xyt_all[:,2] <= t_eps).cpu().numpy()
-        idx_near_all = np.where(mask_near)[0]
-        selected = []
-
-        if len(idx_near_all) > 0:
-            take = min(n_near, len(idx_near_all))
-            perm = np.random.permutation(len(idx_near_all))[:take]
-            selected.extend(idx_near_all[perm].tolist())
-
-        # rest zufällig
-        n_rest = n_samples - len(selected)
-        rem = np.random.permutation(n_total)[:n_rest].tolist()
-        selected.extend(rem)
-
-        selected = torch.tensor(selected, dtype=torch.long, device=xyt_all.device)
-        return xyt_all[selected]
-
-    def get_prediction(xyt):
-        pred = model(xyt)  # (N,3)
-        u = pred[:, 0:1]
-        v = pred[:, 1:2]
-        w = pred[:, 2:3]
-        return u, v, w
-
-    def consistency_loss(model, xyt):
-        xyt_req = xyt.clone().detach().requires_grad_(True)
-        pred = model(xyt_req)
-        u = pred[:, 0:1]
-        v_pred = pred[:, 1:2]
-        w_pred = pred[:, 2:3]
-
-        # echte Ableitungen via autograd
-        grads = torch.autograd.grad(
-            outputs=u,
-            inputs=xyt_req,
-            grad_outputs=torch.ones_like(u),
-            create_graph=True
-        )[0]
-
-        u_x = grads[:, 0:1]
-        u_y = grads[:, 1:2]
-        u_t = grads[:, 2:3]
-
-        # zweite Ableitungen
-        u_xx = torch.autograd.grad(
-            outputs=u_x, inputs=xyt_req,
-            grad_outputs=torch.ones_like(u_x),
-            create_graph=True
-        )[0][:,0:1]
-
-        u_yy = torch.autograd.grad(
-            outputs=u_y, inputs=xyt_req,
-            grad_outputs=torch.ones_like(u_y),
-            create_graph=True
-        )[0][:,1:2]
-
-        lap_u = u_xx + u_yy
-
-        loss_v = ((v_pred - u_t)**2).mean()
-        loss_w = ((w_pred - lap_u)**2).mean()
-
-        return loss_v, loss_w
-
-
-    # physics loss: akzeptiert f=None oder f shape (N,1)
-    # accepts auch heat_source(xyt) als Quelle
-    def physics_loss(model, xyt, alpha, f=None):
-        """
-        PDE: u_t - alpha * (u_xx + u_yy) = f
-        Modell-Outputs: (u, v=u_t, w=Laplace(u))
-        """
-        pred = model(xyt)          # (N,3)
-        u = pred[:, 0:1]
-        v = pred[:, 1:2]
-        w = pred[:, 2:3]
-
-        if f is None:
-            f_tensor = torch.zeros_like(u)
-        else:
-            f_tensor = f
-            if f_tensor.dim() == 1:
-                f_tensor = f_tensor.unsqueeze(1)
-            f_tensor = f_tensor.to(u.device)
-
-        residual = v - alpha * w - f_tensor
-        return (residual ** 2).mean()
-
-    def boundary_loss_robin(model, xyt_boundary, normal_vectors, a=None, b=None, c=None):
-        if a is None or b is None or c is None:
-            return torch.tensor(0.0, device=xyt_boundary.device)
-
-        xyt_boundary = xyt_boundary.clone().detach().requires_grad_(True)
-
-        pred = model(xyt_boundary)
-        u_boundary = pred[:, 0:1]   # nur u
-
-        grads_boundary = torch.autograd.grad(
-            outputs=u_boundary,
-            inputs=xyt_boundary,
-            grad_outputs=torch.ones_like(u_boundary),
-            create_graph=True
-        )[0]  # (N,3)
-
-        du_dn = torch.sum(grads_boundary * normal_vectors, dim=1, keepdim=True)
-        return torch.mean((a * u_boundary + b * du_dn - c) ** 2)
-
-    samp = SamplingService()
-
-    # -------------------------
-    # Interior points
-    # -------------------------
-    samp.calc_interior_samples(trainer.sampling_config.n_interior_samples)
-    # xyt_batch = samp.get_interior_samples_torch(device).requires_grad_(True)
-    # Interior points (biased near t=0)
-    samp.calc_interior_samples(trainer.sampling_config.n_interior_samples)
-    xyt_interior_all = samp.get_interior_samples_biased_t0(
-        n_samples=trainer.sampling_config.n_interior_samples,
-        device=device
-    ).float()
-
-    # -------------------------
-    # Initial condition (IC) vorbereiten
-    # -------------------------
-    samp.calc_initial_samples(2000)
-    Xyt_ic = samp.get_initial_samples_torch(device)
-    Xyt_ic.requires_grad_(True)
-    u_ic = initial_func(Xyt_ic).to(device)  # (N,1)
-
-    # -------------------------
-    # 3) Trainingsparameter für Continuity-Loss
-    # -------------------------
-    eps_time = 1e-3   # kleines Zeit-Offset, prüfe auch größere Werte (1e-2)
-
-    # Erzeuge Xyt_ic_eps einmal (t = eps_time)
-    Xyt_ic_eps = Xyt_ic.clone().detach()
-    Xyt_ic_eps[:,2] = eps_time
-    Xyt_ic_eps = Xyt_ic_eps.to(device)
-
-    # -------------------------
-    # Boundary points (Dirichlet = 0 example)
-    # -------------------------
-    samp.calc_boundary_samples_left(100)
-    samp.calc_boundary_samples_right(100)
-    samp.calc_boundary_samples_bottom(100)
-    samp.calc_boundary_samples_top(100)
-    xyt_boundary = samp.get_boundary_samples_torch(device)
-
-    samp.calc_normals()
-    normals = samp.get_normals_torch(device)
-
-    # -------------------------
-    # Training
-    # -------------------------
-    model = trainer.model.to(device)
-    optimizer = trainer.optimizer
-
-    epochs = trainer.training_config.epochs
-    lambda_phy = trainer.training_config.lambda_phy
-    lambda_ic = trainer.training_config.lambda_ic
-    lambda_bc = trainer.training_config.lambda_bc
-    lambda_cont = trainer.training_config.lambda_cont
-
-    scheduler = torch.optim.lr_scheduler.StepLR(
+    optimizer = optim.Adam(model.parameters(), lr=training_cfg.lr)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
-        step_size=trainer.training_config.step_size,
-        gamma=trainer.training_config.gamma
+        T_max=max(1, training_cfg.epochs - training_cfg.warmup_steps),
+        eta_min=training_cfg.min_lr
     )
 
-    # Interior, Initial, Boundary Daten aus SamplingService holen
-    xyt_interior_all = samp.get_interior_samples_torch(device=device).float()
-    Xyt_ic = samp.get_initial_samples_torch(device=device).float()
-    u_ic = initial_func(Xyt_ic).unsqueeze(1).to(device)  # (N,1)
+    use_trained_model = True
+    start_epoch = 0
+    if os.path.exists("pinn_model.pt") and use_trained_model:
+        model, ckpt = load_model("pinn_model.pt", pinn_cfg, device)
 
-    eps_time = 1e-3
-    Xyt_ic_eps = Xyt_ic.clone().detach()
-    Xyt_ic_eps[:, 2] = eps_time
+        optimizer = optim.Adam(model.parameters(), lr=training_cfg.lr)
+        optimizer.load_state_dict(ckpt["optimizer_state"])
 
-    xyt_boundary = samp.get_boundary_samples_torch(device=device).float()
-    normals = samp.get_normals_torch(device=device).float()
-
-    best_loss = float("inf")
-    patience = trainer.training_config.patience
-    trigger_times = 0
-
-    import time
-    start_time = time.time()
-
-    for epoch in range(epochs):
-        model.train()
-        optimizer.zero_grad()
-
-        # hier konsequent eins: unbiased ODER biased
-        xyt_batch = xyt_interior_all.requires_grad_(True)
-
-        f_batch = heat_source(xyt_batch)
-        loss_phy = physics_loss(model, xyt_batch, alpha, f_batch)
-
-        u_pred_ic, _, _ = get_prediction(Xyt_ic)
-        loss_ic = torch.mean((u_pred_ic - u_ic) ** 2)
-
-        u_pred_ic_eps, _, _ = get_prediction(Xyt_ic_eps)
-        loss_cont = torch.mean((u_pred_ic_eps - u_ic) ** 2)
-
-        loss_bc = boundary_loss_robin(model, xyt_boundary, normals, 0.5, 1.0, 12.5)
-
-        loss_v, loss_w = consistency_loss(model, xyt_batch)
-
-        loss = (
-            lambda_phy * loss_phy
-            + lambda_ic * loss_ic
-            + lambda_bc * loss_bc
-            + lambda_cont * loss_cont
-            + 0.1 * loss_v       # Gewicht anpassen!
-            + 0.1 * loss_w       # Gewicht anpassen!
-        )
-
-
-        # loss = lambda_phy * loss_phy + lambda_ic * loss_ic + lambda_bc * loss_bc + lambda_cont * loss_cont
-
-        if torch.isnan(loss) or torch.isinf(loss):
-            print(f"[WARN] NaN/Inf in Loss bei Epoch {epoch}, phy={loss_phy.item():.3e}")
-            continue
-
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
-        scheduler.step()
-
-        current_loss = loss.item()
-
-        if current_loss < best_loss - 1e-8:
-            best_loss = current_loss
-            trigger_times = 0
-            torch.save(model.state_dict(), "best_model__.pt")
-        else:
-            trigger_times += 1
-            if trigger_times >= patience:
-                print(f"Early stopping nach {epoch} Epochen (beste Loss={best_loss:.4e})")
-                break
-
-        if epoch % 100 == 0 or epoch == epochs - 1:
-            model.eval()
-            with torch.no_grad():
-                u_pred_batch, v_pred_batch, w_pred_batch = get_prediction(xyt_batch)
-                u_min = u_pred_batch.min().item()
-                u_max = u_pred_batch.max().item()
-
-                u_bc_pred, _, _ = get_prediction(xyt_boundary)
-                u_bc_min = u_bc_pred.min().item()
-                u_bc_max = u_bc_pred.max().item()
-                u_bc_mean = u_bc_pred.mean().item()
-
-            print(f"Laufzeit: {time.time() - start_time:.2f}s")
-            print(
-                f"Epoch {epoch:5d}: total={loss.item():.6e}, "
-                f"phy={loss_phy.item():.6e}, ic={loss_ic.item():.6e}, "
-                f"bc={loss_bc.item():.6e}, cont={loss_cont.item():.6e}, "
-                f"u_min={u_min:.4f}, u_max={u_max:.4f}, "
-                f"u_bc_min={u_bc_min:.4f}, u_bc_max={u_bc_max:.4f}, "
-                f"u_bc_mean={u_bc_mean:.4f}, best={best_loss:.6e}"
-            )
-
-    print("Training completed!")
-
-
-    # -------------------------
-    # Prediction
-    # -------------------------
-
-    # import numpy as np
-    import matplotlib.pyplot as plt
-    import matplotlib.animation as animation
-    from matplotlib.widgets import Slider, Button
-
-    # -------------------------
-    # Abfragepunkte fürs Visualisieren
-    # -------------------------
-    n_vis = 100  # Auflösung
-    x_vis = torch.linspace(0, lx, n_vis)
-    y_vis = torch.linspace(0, ly, n_vis)
-    t_vis = torch.linspace(0, 1.0, 100)
-    Xv, Yv = torch.meshgrid(x_vis, y_vis, indexing='ij')
-
-    # shape für 2D-Darstellung
-    nx_ic = xyt.get_x_ic().shape[0]
-    ny_ic = xyt.get_y_ic().shape[1]
-
-    # u_ic_frame1 = u_ic.detach().cpu().reshape(nx_ic, ny_ic).numpy()
-    u_ic_frame = initial_func(torch.stack([Xv.flatten(), Yv.flatten()], dim=1).float()).detach().cpu().reshape(n_vis, n_vis).numpy()
-
-    u_frames = [u_ic_frame,  ] 
-    u_means = []
-    with torch.no_grad():
-        for tval in t_vis:
-            Xyt_vis = torch.stack([
-                Xv.flatten(),
-                Yv.flatten(),
-                torch.full_like(Xv.flatten(), tval)
-            ], dim=1).to(device)
-            # u_pred = model(Xyt_vis).reshape(n_vis, n_vis).cpu().numpy()
-            u_pred, v_pred, w_pred = get_prediction(Xyt_vis)
-            u_pred = u_pred.reshape(n_vis, n_vis).cpu().numpy()
-            u_frames.append(u_pred)
-            u_mean = u_pred.mean()
-            u_means.append(u_mean)
-            print(f"Frame {tval*100:.0f}: u mean={u_mean:.6f}, ")
-
-    print(f"min of u mean={np.min(np.array(u_means))}")
-    print(f"max of u mean={np.max(np.array(u_means))}")
-    print(f"Standard dev of u mean={np.std(np.array(u_means))}")
-
-    u_frames = np.array(u_frames)  # shape (nt, nx, ny)
+        start_epoch = ckpt["epoch"] + 1
 
     
 
-    # Slider animation function für ML-Lösung
-    def anim_slide():
-        results = u_frames
-        nt_vis, nx, ny = results.shape
-        fig, ax = plt.subplots(figsize=(8,6))
-        plt.subplots_adjust(bottom=0.25)
+    # ----------------------------------------
+    # Loss-Funktionen
+    # ----------------------------------------
 
-        vmin, vmax = results.min(), results.max()
-        cax = ax.imshow(results[0], origin='lower', extent=[0, lx, 0, ly],
-                        cmap='coolwarm', vmin=vmin, vmax=vmax)
-        fig.colorbar(cax, label="Temperature")
-        ax.set_title(f"ML Solution - t = 0.0000")
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
+    def heat_source(xyt: torch.Tensor) -> torch.Tensor:
+        x = xyt[:, 0:1]
+        y = xyt[:, 1:2]
+        t = xyt[:, 2:3]
+        return heat_problem.heat_source(x, y, t)
 
-        # Slider
-        ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03])
-        slider = Slider(ax_slider, "Time", 0, nt_vis-1, valinit=0, valstep=1)
+    print_max_f = False
+    def physics_loss(model, xyt: torch.Tensor) -> torch.Tensor:
+        nonlocal print_max_f
+        _, u_t_val, lap_u = predict_u_and_derivs(model, xyt)
+        f = heat_source(xyt)
+        if not print_max_f:
+            print_max_f = True
+            print(f"Max f: {torch.max(f)}")
+        # ggf. normalisieren (z.B. /1000.0), wenn Residuen zu groß sind
+        return ((u_t_val - alpha * lap_u - f) ** 2).mean()
 
-        # Play/Stop button
-        ax_button = plt.axes([0.8, 0.02, 0.1, 0.04])
-        button = Button(ax_button, 'Play', color='lightgray', hovercolor='0.85')
+    def pde_loss(model , xyt: torch.Tensor):
+        x = xyt[0]
+        x = xyt[:, 0:1]
+        y = xyt[:, 1:2]
+        t = xyt[:, 2:3]
+        f = heat_source(xyt)
 
-        playing = False
+        u = model(x, y, t)
+        epsilon = 0.1
+        u_t = torch.autograd.grad(u, t, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+        u_x = torch.autograd.grad(u, x, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+        u_y = torch.autograd.grad(u, y, grad_outputs=torch.ones_like(u), create_graph=True)[0]
+        u_xx = torch.autograd.grad(u_x , x, grad_outputs=torch.ones_like(u_x), create_graph=True)[0]
+        u_yy = torch.autograd.grad(u_y , y, grad_outputs=torch.ones_like(u_y), create_graph=True)[0]
+        print(f"Max f: {np.max(f)}")
+        residual = u_t - epsilon * (u_xx + u_yy) - f
+        return torch.mean(residual ** 2)
 
-        def update_slider(val):
-            frame = int(slider.val)
-            cax.set_data(results[frame])
-            ax.set_title(f"Frame = {frame}")
-            fig.canvas.draw_idle()
+    def ic_loss() -> torch.Tensor:
+        u_pred, _, _ = predict_u_and_derivs(model, Xyt_ic)
+        return ((u_pred - u_ic) ** 2).mean()
 
-        slider.on_changed(update_slider)
+    def cont_loss() -> torch.Tensor:
+        u_eps_pred, _, _ = predict_u_and_derivs(model, Xyt_ic_eps)
+        return ((u_eps_pred - u_ic) ** 2).mean()
 
-        def play_animation(event):
-            nonlocal playing
-            playing = not playing
-            if playing:
-                button.label.set_text('Stop')
-                run_animation()
-            else:
-                button.label.set_text('Play')
+    def boundary_loss() -> torch.Tensor:
+        xyt_req = xyt_boundary.clone().detach().requires_grad_(True)
+        u_b = model(xyt_req)
 
-        button.on_clicked(play_animation)
+        grads = torch.autograd.grad(
+            outputs=u_b,
+            inputs=xyt_req,
+            grad_outputs=torch.ones_like(u_b),
+            create_graph=True
+        )[0]
 
-        def run_animation():
-            nonlocal playing
-            for frame in range(int(slider.val)+1, nt_vis):
-                if not playing:
-                    break
-                slider.set_val(frame)
-                plt.pause(0.05)
-            button.label.set_text('Play')
-            playing = False
+        du_dn = torch.sum(grads * normals, dim=1, keepdim=True)
+        a, b, c = heat_problem.a, heat_problem.b, heat_problem.c
 
-        plt.show()
+        # du/dn leicht skaliert, um Extremwerte abzufangen
+        scal = 1.0
+        return ((a * u_b + scal * b * du_dn - c) ** 2).mean()
 
-    # Run slider animation
-    anim_slide()
+    # ----------------------------------------
+    # Training
+    # ----------------------------------------
+    state = {}
+    best_metrics = None
+    start_time = time.time()
+    losses = []
+    temperatures = []
 
-    quit()
+    losses_phy = []
+    losses_ic = []
+    losses_bc = []
+    losses_cont = []
 
-    for idx in [0,1,-1]:
-        results = u_frames
-        nt_vis, nx, ny = results.shape
-        fig, ax = plt.subplots(figsize=(8,6))
-        plt.subplots_adjust(bottom=0.25)
+    sampling_cfg = SamplingConfig(n_interior_samples = 20000, n_initial_samples  = 1000, n_boundary_samples = 1000)
 
-        vmin, vmax = results.min(), results.max()
-        cax = ax.imshow(results[idx], origin='lower', extent=[0, lx, 0, ly],
-                        cmap='coolwarm', vmin=vmin, vmax=vmax)
-        fig.colorbar(cax, label="Temperature")
-        ax.set_title(f"Frame: {idx}")
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
+    # ----------------------------------------
+    # Sampling
+    # ----------------------------------------
+    a = np.zeros(3)
+    B = np.diag([1.0, 1.0, 65.0])
+    tr = make_affine_transform(a, B)
 
-    # -------------------------
-    # Einzelbild (z.B. erstes t)
-    # -------------------------
-    plt.figure(figsize=(6,5))
-    plt.imshow(u_frames[0], origin='lower', extent=[0, lx, 0, ly], cmap='coolwarm')
-    plt.colorbar(label="Temperature")
-    plt.title("Temperature at start")
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.show()
+    samp = SamplingService(
+        config= sampling_cfg,
+        transform=tr,
+        mode="biased",   # "uniform" or "biased" wäre auch möglich
+        frac_near0=0.4,
+        t_eps=0.03
+    )
+    for epoch in range(start_epoch, start_epoch + training_cfg.epochs):
 
-    # -------------------------
-    # Einzelbild (z.B. zweites t)
-    # -------------------------
-    plt.figure(figsize=(6,5))
-    plt.imshow(u_frames[1], origin='lower', extent=[0, lx, 0, ly], cmap='coolwarm')
-    plt.colorbar(label="Temperature")
-    plt.title("Temperature at 2nd timestep")
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.show()
+        time_pt1 = time.time()
+        xyt_interior, Xyt_ic, xyt_boundary, normals, u_ic, Xyt_ic_eps = samp.get_samples(heat_problem)
+        time_pt2 = time.time()
+        time_samp = time_pt2 - time_pt1
 
-    # -------------------------
-    # Einzelbild (z.B. letztes t)
-    # -------------------------
-    plt.figure(figsize=(6,5))
-    plt.imshow(u_frames[-1], origin='lower', extent=[0, lx, 0, ly], cmap='coolwarm')
-    plt.colorbar(label="Temperature")
-    plt.title("Temperature at final time")
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.show()
+        model.train()
+        apply_warmup(optimizer, epoch, training_cfg)
 
-    ####################
-    # -------------------------
-    # Einzelbild (z.B. letztes t)
-    # -------------------------
-    plt.figure(figsize=(6,5))
-    plt.imshow(u_frames[-1], origin='lower', extent=[0, lx, 0, ly], cmap='hot')
-    plt.colorbar(label="Temperature")
-    plt.title("Temperature at final time")
-    plt.xlabel("x")
-    plt.ylabel("y")
-    plt.show()
+        # Verluste berechnen
+        # loss_phy = physics_loss(xyt_interior)
+        loss_phy = physics_loss(model, xyt_interior)
+        loss_ic = ic_loss()
+        loss_cont = cont_loss()
+        loss_bc = boundary_loss()
 
-    # -------------------------
-    # Animation
-    # -------------------------
-    fig, ax = plt.subplots(figsize=(6,5))
-    cax = ax.imshow(u_frames[0], origin='lower', extent=[0, lx, 0, ly],
-                    cmap='hot', vmin=u_frames.min(), vmax=u_frames.max())
-    fig.colorbar(cax, label="Temperature")
+        losses_phy.append(loss_phy.item())
+        losses_ic.append(loss_ic.item())
+        losses_bc.append(loss_bc.item())
+        losses_cont.append(loss_cont.item())
 
-    def update(frame):
-        cax.set_data(u_frames[frame])
-        ax.set_title(f"t = {t_vis[frame]:.2f}")
-        return cax,
+        ln_phy = loss_number(losses_phy)
+        ln_ic = loss_number(losses_ic)
+        ln_bc = loss_number(losses_bc)
+        ln_cont = loss_number(losses_cont)
 
-    ani = animation.FuncAnimation(fig, update, frames=len(t_vis), interval=100)
-    plt.show()
+        sum_ln = ln_phy + ln_ic + ln_bc + ln_cont
 
-    from matplotlib.widgets import Slider
+        scal = 4.0
+        training_cfg.lambda_phy = scal*ln_phy / sum_ln
+        training_cfg.lambda_ic = scal*ln_ic / sum_ln
+        training_cfg.lambda_bc = scal*ln_bc / sum_ln
+        training_cfg.lambda_cont = scal*ln_cont / sum_ln
 
-    # Visualisiere die Lösung als Funktion der Zeit
-    n_vis = 30
-    x_vis = torch.linspace(0, lx, n_vis)
-    y_vis = torch.linspace(0, ly, n_vis)
-    Xv, Yv = torch.meshgrid(x_vis, y_vis, indexing='ij')
+        losses_float = (
+            loss_phy.item(),
+            loss_ic.item(),
+            loss_bc.item(),
+            loss_cont.item()
+        )
 
-    t_vis = torch.linspace(0, 1.0, 100)
-    u_frames = []
-    with torch.no_grad():
-        for tval in t_vis:
-            Xyt_vis = torch.stack([
-                Xv.flatten(),
-                Yv.flatten(),
-                torch.full_like(Xv.flatten(), tval)
-            ], dim=1)
-            # u_pred = model(Xyt_vis).reshape(n_vis, n_vis).cpu().numpy()
-            u_pred, v_pred = get_prediction(Xyt_vis.to(device))
-            u_pred = u_pred.reshape(n_vis, n_vis).cpu().numpy()
-            u_frames.append(u_pred)
+        # Gesamtverlust
+        total_loss = (
+            training_cfg.lambda_phy * loss_phy +
+            training_cfg.lambda_ic * loss_ic +
+            training_cfg.lambda_bc * loss_bc +
+            training_cfg.lambda_cont * loss_cont
+        )
 
-    u_frames = np.array(u_frames)
+        losses.append(total_loss)
 
-    # -------------------------
-    # Slider-Plot
-    # -------------------------
-    fig, ax = plt.subplots(figsize=(6,5))
-    plt.subplots_adjust(bottom=0.2)
+        optimizer.zero_grad()
+        total_loss.backward()
 
-    cax = ax.imshow(u_frames[0], origin='lower', extent=[0, lx, 0, ly],
-                    cmap='hot', vmin=u_frames.min(), vmax=u_frames.max())
-    fig.colorbar(cax, label="Temperature")
-    ax.set_title(f"t = {t_vis[0]:.2f}")
+        maybe_clip_gradients(model, training_cfg)
+        optimizer.step()
 
-    ax_slider = plt.axes([0.2, 0.05, 0.6, 0.03])
-    slider = Slider(ax_slider, "Time", 0, len(t_vis)-1, valinit=0, valstep=1)
+        apply_scheduler(scheduler, epoch, training_cfg)
+        apply_adaptive_lr(optimizer, loss_phy.item(), state, training_cfg)
 
-    def update(val):
-        frame = int(slider.val)
-        cax.set_data(u_frames[frame])
-        ax.set_title(f"t = {t_vis[frame]:.2f}")
-        fig.canvas.draw_idle()
+        time_train = time.time() - time_pt2
 
-    slider.on_changed(update)
-    plt.show()
+        # --- erweiterte Metriken (für Logging) ---
+        model.eval()
+        u_vals, u_t_vals, lap_vals = predict_u_and_derivs(model, xyt_interior)
+        residual = (u_t_vals - alpha * lap_vals - heat_source(xyt_interior))
+
+        metrics = {
+            "u_min": u_vals.min().item(),
+            "u_max": u_vals.max().item(),
+            "u_t_min": u_t_vals.min().item(),
+            "u_t_max": u_t_vals.max().item(),
+            "lap_min": lap_vals.min().item(),
+            "lap_max": lap_vals.max().item(),
+            "res_min": residual.min().item(),
+            "res_max": residual.max().item(),
+            "res_mean": residual.abs().mean().item(),
+            "lambda_phy": training_cfg.lambda_phy,
+            "lambda_ic": training_cfg.lambda_ic,
+            "lambda_bc": training_cfg.lambda_bc,
+            "time_samp": time_samp,
+            "time_train": time_train
+        }
+        temperatures.append(metrics["u_max"])
+        best_metrics = metrics
+
+        log_training(epoch, losses_float, metrics, training_cfg)
+
+        # Early Stopping
+        if early_stopping(losses, training_cfg):
+           break
+        if early_stopping_t(temperatures):
+           break
+
+    #
+    # ----------------------------------------
+    # Modell speichern
+    # ----------------------------------------
+    save_path = "pinn_model.pt"
+    torch.save({
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "epoch": epoch,
+        "training_cfg": training_cfg
+    }, save_path)
+
+    print(f"Modell gespeichert unter {save_path}")
+
+    # ----------------------------------------
+    # Training Report
+    # ----------------------------------------
+
+    duration = time.time() - start_time
+    print("\n===== TRAINING REPORT =====")
+    best_key = "best_loss" if "best_loss" in state else "best"
+    best_val = state.get(best_key, float("nan"))
+    print(f"Beste Loss (total, EMA/best): {best_val:.3e}")
+    print(f"Final λ_phy: {training_cfg.lambda_phy:.3f}")
+    if best_metrics is not None:
+        print(f"Final PDE-Residual mean: {best_metrics['res_mean']:.3e}")
+        print(f"Final u in [{best_metrics['u_min']:.3f}, {best_metrics['u_max']:.3f}]")
+    print(f"Trainingsdauer: {duration:.2f} s")
+    print("===========================\n")
+
+    # ----------------------------------------
+    # Optionale Visualisierung / Animation
+    # ----------------------------------------
+    t_vals = torch.linspace(0.0, 60.0, 100)
+    animate_heatmap(model, t_vals, grid_size=80, device=device)
