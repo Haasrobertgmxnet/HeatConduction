@@ -49,11 +49,11 @@ class TrainingConfig:
     warmup_steps: int = 500
 
     use_warmup: bool = False
-    use_cosine_annealing: bool = False
+    use_cosine_annealing: bool = True
     use_adaptive_lr: bool = True
 
     # Gradient Clipping
-    use_gradient_clipping: bool = False
+    use_gradient_clipping: bool = True
     grad_clip_norm: float = 1.0
 
     # Logging
@@ -73,8 +73,8 @@ class TrainingConfig:
 @dataclass
 class PINNConfig:
     n_hid_layers: int = 5
-    n_neurons: int = 50
-    use_fourier = False
+    n_neurons: int = 64
+    use_fourier = True
     m_fourier: int = 12
     fourier_scale: float = 2.0
 
@@ -93,51 +93,40 @@ def predict_u(model, xyt: torch.Tensor) -> torch.Tensor:
 
 
 def predict_u_and_derivs(model, xyt: torch.Tensor):
-    """
-    Liefert (u, u_t, laplace(u)) für ein Modell mit EINEM Output u.
-    Funktioniert für Training und Analyse.
-    """
-    # xyt GRAD-SICHER machen – aber KEIN detach()
     if not xyt.requires_grad:
-        xyt = xyt.clone().requires_grad_(True)
+        xyt = xyt.requires_grad_(True)
 
-    # Forward-Pass muss unter Autograd laufen
-    u = model(xyt)  # (N,1)
-    if not u.requires_grad:
-        raise RuntimeError("predict_u_and_derivs: u hat requires_grad=False → Fehlerquelle!")
+    u = model(xyt)
 
-    # Erste Ableitung
     grads = torch.autograd.grad(
-        outputs=u,
-        inputs=xyt,
+        u,
+        xyt,
         grad_outputs=torch.ones_like(u),
-        create_graph=True,
-        retain_graph=True
+        create_graph=True
     )[0]
 
     u_x = grads[:, 0:1]
     u_y = grads[:, 1:2]
     u_t = grads[:, 2:3]
 
-    # Zweite Ableitungen
     u_xx = torch.autograd.grad(
-        outputs=u_x,
-        inputs=xyt,
+        u_x,
+        xyt,
         grad_outputs=torch.ones_like(u_x),
-        create_graph=True,
-        retain_graph=True
+        create_graph=True
     )[0][:, 0:1]
 
     u_yy = torch.autograd.grad(
-        outputs=u_y,
-        inputs=xyt,
+        u_y,
+        xyt,
         grad_outputs=torch.ones_like(u_y),
-        create_graph=True,
-        retain_graph=True
+        create_graph=True
     )[0][:, 1:2]
 
     lap_u = u_xx + u_yy
     return u, u_t, lap_u
+
+
 
 # =============================================================================
 # TRAINING PIPELINE
@@ -263,6 +252,16 @@ def training_pipeline():
     # ----------------------------------------
     # Training
     # ----------------------------------------
+
+    sampler = SamplingService(SamplingConfig())
+    xyt_int, Xyt_ic, xyt_bnd, normals, u_ic, Xyt_ic_eps = sampler.get_samples(heat_problem)
+
+    print(xyt_int.shape)   # (3000, 3)
+    print(Xyt_ic.shape)    # (100, 3)
+    print(xyt_bnd.shape)   # (400, 3)
+    print(normals.shape)   # (400, 3)
+    print(u_ic.shape)      # (100, 1)
+
     state = {}
     best_metrics = None
     start_time = time.time()
