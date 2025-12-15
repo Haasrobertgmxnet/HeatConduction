@@ -10,10 +10,15 @@ from typing import Optional, Callable
 # --------------------------------------------------
 @dataclass
 class SamplingConfig:
-    n_interior_samples: int = 3000
-    n_initial_samples: int = 100
-    n_boundary_samples: int = 100
+    # Pool sizes
+    n_interior_pool: int = 8000
+    n_initial_pool: int = 400
+    n_boundary_pool: int = 400   # per side
 
+    # Batch fractions
+    frac_interior: float = 0.2
+    frac_boundary: float = 0.2
+    frac_initial: float = 0.2
 
 # --------------------------------------------------
 # Optional affine transform (torch-compatible)
@@ -30,149 +35,130 @@ def make_affine_transform(a, B):
 
 
 # --------------------------------------------------
-# SamplingService
+# SamplingService (Pool + Batch)
 # --------------------------------------------------
 class SamplingService:
-    """
-    Torch-first SamplingService
-
-    mode:
-        "uniform" : uniform interior sampling
-        "biased"  : oversample t <= t_eps
-    """
-
     def __init__(
         self,
-        config: SamplingConfig,
+        cfg: SamplingConfig,
         transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
-        mode: str = "uniform",
+        mode: str = "uniform",     # "uniform" | "biased"
         frac_near0: float = 0.3,
         t_eps: float = 0.02,
         dtype=torch.float32,
+        device: str = "cpu",
     ):
-        self.cfg = config
+        self.cfg = cfg
         self.transform = transform
         self.mode = mode
         self.frac_near0 = frac_near0
         self.t_eps = t_eps
         self.dtype = dtype
+        self.device = torch.device(device)
+
+        self._build_pools()
 
     # --------------------------------------------------
-    # Core random helper
+    # Random helper
     # --------------------------------------------------
-    def _rand_wrap(self, n: int, dims: int, device):
-        r1 = torch.rand((n, dims), device=device, dtype=self.dtype)
-        r2 = torch.rand((n, dims), device=device, dtype=self.dtype)
-        return torch.where(r1 > r2, 0.5 * (1.0 + r1), 0.5 * (1.0 - r2))
+    def _rand_wrap(self, n, dims):
+        r1 = torch.rand((n, dims), device=self.device, dtype=self.dtype)
+        r2 = torch.rand((n, dims), device=self.device, dtype=self.dtype)
+        return torch.where(r1 > r2, 0.5 * (1 + r1), 0.5 * (1 - r2))
 
     # --------------------------------------------------
-    # Interior sampling
+    # Pool builders
     # --------------------------------------------------
-    def _sample_interior_uniform(self, device):
-        xyt = self._rand_wrap(self.cfg.n_interior_samples, 3, device)
-        return self.transform(xyt) if self.transform else xyt
+    def _build_interior_pool(self):
+        n = self.cfg.n_interior_pool
 
-    def _sample_interior_biased(self, device):
-        n = self.cfg.n_interior_samples
-
-        # x,y
-        xy = self._rand_wrap(n, 2, device)
-
-        # mixture for t
-        u = torch.rand((n, 1), device=device)
-        v = torch.rand((n, 1), device=device)
-
-        t_near = v * self.t_eps
-        t_far = self.t_eps + v * (1.0 - self.t_eps)
-        t = torch.where(u < self.frac_near0, t_near, t_far)
-
-        xyt = torch.cat([xy, t], dim=1)
-        return self.transform(xyt) if self.transform else xyt
-
-    def sample_interior(self, device):
         if self.mode == "uniform":
-            return self._sample_interior_uniform(device)
+            xyt = self._rand_wrap(n, 3)
+
         elif self.mode == "biased":
-            return self._sample_interior_biased(device)
+            xy = self._rand_wrap(n, 2)
+            u = torch.rand((n, 1), device=self.device)
+            v = torch.rand((n, 1), device=self.device)
+
+            t_near = v * self.t_eps
+            t_far = self.t_eps + v * (1 - self.t_eps)
+            t = torch.where(u < self.frac_near0, t_near, t_far)
+
+            xyt = torch.cat([xy, t], dim=1)
+
         else:
-            raise ValueError(f"Unknown sampling mode: {self.mode}")
+            raise ValueError(f"Unknown mode: {self.mode}")
 
-    # --------------------------------------------------
-    # Initial condition (t = 0)
-    # --------------------------------------------------
-    def sample_initial(self, device):
-        xy = self._rand_wrap(self.cfg.n_initial_samples, 2, device)
-        t = torch.zeros((self.cfg.n_initial_samples, 1), device=device)
+        if self.transform:
+            xyt = self.transform(xyt)
+
+        self.interior_pool = xyt
+
+    def _build_initial_pool(self):
+        n = self.cfg.n_initial_pool
+        xy = self._rand_wrap(n, 2)
+        t = torch.zeros((n, 1), device=self.device)
         xyt = torch.cat([xy, t], dim=1)
-        return self.transform(xyt) if self.transform else xyt
 
-    # --------------------------------------------------
-    # Boundary sampling
-    # --------------------------------------------------
-    def sample_boundary(self, device):
-        n = self.cfg.n_boundary_samples
+        if self.transform:
+            xyt = self.transform(xyt)
 
-        yt = self._rand_wrap(n, 2, device)
-        xt = self._rand_wrap(n, 2, device)
+        self.initial_pool = xyt
 
-        left = torch.cat([torch.zeros((n, 1), device=device), yt], dim=1)
-        right = torch.cat([torch.ones((n, 1), device=device), yt], dim=1)
+    def _build_boundary_pool(self):
+        n = self.cfg.n_boundary_pool
 
-        bottom = torch.cat(
-            [xt[:, 0:1], torch.zeros((n, 1), device=device), xt[:, 1:2]], dim=1
-        )
-        top = torch.cat(
-            [xt[:, 0:1], torch.ones((n, 1), device=device), xt[:, 1:2]], dim=1
-        )
+        yt = self._rand_wrap(n, 2)
+        xt = self._rand_wrap(n, 2)
+
+        left   = torch.cat([torch.zeros((n,1), device=self.device), yt], dim=1)
+        right  = torch.cat([torch.ones((n,1),  device=self.device), yt], dim=1)
+        bottom = torch.cat([xt[:,0:1], torch.zeros((n,1), device=self.device), xt[:,1:2]], dim=1)
+        top    = torch.cat([xt[:,0:1], torch.ones((n,1),  device=self.device), xt[:,1:2]], dim=1)
 
         xyt = torch.cat([left, right, bottom, top], dim=0)
-        return self.transform(xyt) if self.transform else xyt
+
+        if self.transform:
+            xyt = self.transform(xyt)
+
+        self.boundary_pool = xyt
+
+        # normals (fix, no RNG)
+        self.boundary_normals = torch.cat([
+            torch.tensor([-1,0,0]).repeat(n,1),
+            torch.tensor([+1,0,0]).repeat(n,1),
+            torch.tensor([0,-1,0]).repeat(n,1),
+            torch.tensor([0,+1,0]).repeat(n,1),
+        ], dim=0).to(self.device, self.dtype)
+
+    def _build_pools(self):
+        self._build_interior_pool()
+        self._build_initial_pool()
+        self._build_boundary_pool()
 
     # --------------------------------------------------
-    # Boundary normals
+    # Batch samplers (HOT PATH)
     # --------------------------------------------------
-    def sample_normals(self, device):
-        n = self.cfg.n_boundary_samples
+    def _sample_batch(self, pool, frac):
+        n = pool.shape[0]
+        k = int(frac * n)
+        idx = torch.randperm(n, device=self.device)[:k]
+        return pool[idx]
 
-        left = torch.tensor([-1, 0, 0], device=device).repeat(n, 1)
-        right = torch.tensor([1, 0, 0], device=device).repeat(n, 1)
-        bottom = torch.tensor([0, -1, 0], device=device).repeat(n, 1)
-        top = torch.tensor([0, 1, 0], device=device).repeat(n, 1)
+    def sample_interior(self):
+        return self._sample_batch(self.interior_pool, self.cfg.frac_interior)
 
-        return torch.cat([left, right, bottom, top], dim=0)
+    def sample_initial(self):
+        return self._sample_batch(self.initial_pool, self.cfg.frac_initial)
+
+    def sample_boundary(self):
+        idx = torch.randperm(self.boundary_pool.shape[0], device=self.device)[
+            : int(self.cfg.frac_boundary * self.boundary_pool.shape[0])
+        ]
+        return self.boundary_pool[idx], self.boundary_normals[idx]
 
     # --------------------------------------------------
-    # Main entry used by training
+    # Optional: epoch-wise resampling
     # --------------------------------------------------
-    def get_samples(self, heat_problem):
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        # Interior
-        xyt_interior = self.sample_interior(device)
-
-        # Initial condition
-        Xyt_ic = self.sample_initial(device)
-        x_ic = Xyt_ic[:, 0:1]
-        y_ic = Xyt_ic[:, 1:2]
-
-        u_ic = heat_problem.initial_u(x_ic, y_ic)
-        if u_ic.dim() == 1:
-            u_ic = u_ic.unsqueeze(1)
-
-        # Continuity points
-        eps_time = 1e-3
-        Xyt_ic_eps = Xyt_ic.clone()
-        Xyt_ic_eps[:, 2] = eps_time
-
-        # Boundary
-        xyt_boundary = self.sample_boundary(device)
-        normals = self.sample_normals(device)
-
-        return (
-            xyt_interior,
-            Xyt_ic,
-            xyt_boundary,
-            normals,
-            u_ic.to(device),
-            Xyt_ic_eps,
-        )
+    def resample_pools(self):
+        self._build_pools()

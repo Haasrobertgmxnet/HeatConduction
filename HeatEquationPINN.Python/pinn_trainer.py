@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 
 from pinn import PINN
 from sampling_service import SamplingService, SamplingConfig
+from sampling_service import make_affine_transform
+
 from ibvp_data import ibvp1, IBVPData
 
 from plot_tools import animate_heatmap
@@ -53,7 +55,7 @@ class TrainingConfig:
     use_adaptive_lr: bool = True
 
     # Gradient Clipping
-    use_gradient_clipping: bool = True
+    use_gradient_clipping: bool = False
     grad_clip_norm: float = 1.0
 
     # Logging
@@ -73,8 +75,8 @@ class TrainingConfig:
 @dataclass
 class PINNConfig:
     n_hid_layers: int = 5
-    n_neurons: int = 64
-    use_fourier = True
+    n_neurons: int = 50
+    use_fourier = False
     m_fourier: int = 12
     fourier_scale: float = 2.0
 
@@ -137,12 +139,7 @@ def training_pipeline():
     print("Training gestartet...")
     seed = 35
     torch.manual_seed(seed)
-    # seed = 24
-    # np.random.seed(seed)
 
-    from sampling_service import make_affine_transform
-    
-    sampling_cfg = SamplingConfig(n_interior_samples = 1000, n_initial_samples  = 100, n_boundary_samples = 100)
     training_cfg = TrainingConfig()
     pinn_cfg = PINNConfig()
 
@@ -182,8 +179,6 @@ def training_pipeline():
 
         start_epoch = ckpt["epoch"] + 1
 
-    
-
     # ----------------------------------------
     # Loss-Funktionen
     # ----------------------------------------
@@ -194,45 +189,23 @@ def training_pipeline():
         t = xyt[:, 2:3]
         return heat_problem.heat_source(x, y, t)
 
-    print_max_f = False
-    def physics_loss(model, xyt: torch.Tensor) -> torch.Tensor:
-        nonlocal print_max_f
-        _, u_t_val, lap_u = predict_u_and_derivs(model, xyt)
-        f = heat_source(xyt)
-        if not print_max_f:
-            print_max_f = True
-            print(f"Max f: {torch.max(f)}")
-        # ggf. normalisieren (z.B. /1000.0), wenn Residuen zu groß sind
-        return ((u_t_val - alpha * lap_u - f) ** 2).mean()
-
-    def pde_loss(model , xyt: torch.Tensor):
-        x = xyt[0]
+    def initial_u(xyt: torch.Tensor) -> torch.Tensor:
         x = xyt[:, 0:1]
         y = xyt[:, 1:2]
-        t = xyt[:, 2:3]
+        return heat_problem.initial_u(x, y)
+
+    def physics_loss(model: PINN, xyt: torch.Tensor) -> torch.Tensor:
+        _, u_t_val, lap_u = predict_u_and_derivs(model, xyt)
         f = heat_source(xyt)
+        return ((u_t_val - alpha * lap_u - f) ** 2).mean()
 
-        u = model(x, y, t)
-        epsilon = 0.1
-        u_t = torch.autograd.grad(u, t, grad_outputs=torch.ones_like(u), create_graph=True)[0]
-        u_x = torch.autograd.grad(u, x, grad_outputs=torch.ones_like(u), create_graph=True)[0]
-        u_y = torch.autograd.grad(u, y, grad_outputs=torch.ones_like(u), create_graph=True)[0]
-        u_xx = torch.autograd.grad(u_x , x, grad_outputs=torch.ones_like(u_x), create_graph=True)[0]
-        u_yy = torch.autograd.grad(u_y , y, grad_outputs=torch.ones_like(u_y), create_graph=True)[0]
-        print(f"Max f: {np.max(f)}")
-        residual = u_t - epsilon * (u_xx + u_yy) - f
-        return torch.mean(residual ** 2)
-
-    def ic_loss() -> torch.Tensor:
+    def ic_loss(model: PINN, Xyt_ic: torch.Tensor) -> torch.Tensor:
         u_pred, _, _ = predict_u_and_derivs(model, Xyt_ic)
+        u_ic = initial_u(Xyt_ic)
         return ((u_pred - u_ic) ** 2).mean()
 
-    def cont_loss() -> torch.Tensor:
-        u_eps_pred, _, _ = predict_u_and_derivs(model, Xyt_ic_eps)
-        return ((u_eps_pred - u_ic) ** 2).mean()
-
-    def boundary_loss() -> torch.Tensor:
-        xyt_req = xyt_boundary.clone().detach().requires_grad_(True)
+    def boundary_loss(model: PINN, xyt_bnd: torch.Tensor) -> torch.Tensor:
+        xyt_req = xyt_bnd.clone().detach().requires_grad_(True)
         u_b = model(xyt_req)
 
         grads = torch.autograd.grad(
@@ -253,15 +226,6 @@ def training_pipeline():
     # Training
     # ----------------------------------------
 
-    sampler = SamplingService(SamplingConfig())
-    xyt_int, Xyt_ic, xyt_bnd, normals, u_ic, Xyt_ic_eps = sampler.get_samples(heat_problem)
-
-    print(xyt_int.shape)   # (3000, 3)
-    print(Xyt_ic.shape)    # (100, 3)
-    print(xyt_bnd.shape)   # (400, 3)
-    print(normals.shape)   # (400, 3)
-    print(u_ic.shape)      # (100, 1)
-
     state = {}
     best_metrics = None
     start_time = time.time()
@@ -273,26 +237,37 @@ def training_pipeline():
     losses_bc = []
     losses_cont = []
 
-    sampling_cfg = SamplingConfig(n_interior_samples = 20000, n_initial_samples  = 1000, n_boundary_samples = 1000)
-
     # ----------------------------------------
     # Sampling
     # ----------------------------------------
     a = np.zeros(3)
-    B = np.diag([1.0, 1.0, 65.0])
+    B = np.diag([1.0, 1.0, 45.0])
     tr = make_affine_transform(a, B)
 
-    samp = SamplingService(
-        config= sampling_cfg,
-        transform=tr,
-        mode="biased",   # "uniform" or "biased" wäre auch möglich
-        frac_near0=0.4,
-        t_eps=0.03
+    sampler = SamplingService(
+        SamplingConfig(
+            n_interior_pool=200000,
+            n_boundary_pool=20000,
+            frac_interior=0.02,
+            frac_boundary=0.02,
+        ),
+        transform= tr,
+        mode="biased"
     )
+
     for epoch in range(start_epoch, start_epoch + training_cfg.epochs):
 
         time_pt1 = time.time()
-        xyt_interior, Xyt_ic, xyt_boundary, normals, u_ic, Xyt_ic_eps = samp.get_samples(heat_problem)
+        if epoch % 100 == 0 and epoch > 0:
+            sampler.resample_pools()
+
+        xyt_int = sampler.sample_interior()
+        xyt_ic = sampler.sample_initial()
+        xyt_ic_eps = xyt_ic.clone()
+        xyt_ic_eps[:, 2] = 1e-3  # z.B. 1e-3
+
+        xyt_bnd, normals = sampler.sample_boundary()
+
         time_pt2 = time.time()
         time_samp = time_pt2 - time_pt1
 
@@ -300,11 +275,10 @@ def training_pipeline():
         apply_warmup(optimizer, epoch, training_cfg)
 
         # Verluste berechnen
-        # loss_phy = physics_loss(xyt_interior)
-        loss_phy = physics_loss(model, xyt_interior)
-        loss_ic = ic_loss()
-        loss_cont = cont_loss()
-        loss_bc = boundary_loss()
+        loss_phy = physics_loss(model, xyt_int)
+        loss_ic = ic_loss(model, xyt_ic)
+        loss_cont = ic_loss(model, xyt_ic_eps)
+        loss_bc = boundary_loss(model, xyt_bnd)
 
         losses_phy.append(loss_phy.item())
         losses_ic.append(loss_ic.item())
@@ -354,8 +328,8 @@ def training_pipeline():
 
         # --- erweiterte Metriken (für Logging) ---
         model.eval()
-        u_vals, u_t_vals, lap_vals = predict_u_and_derivs(model, xyt_interior)
-        residual = (u_t_vals - alpha * lap_vals - heat_source(xyt_interior))
+        u_vals, u_t_vals, lap_vals = predict_u_and_derivs(model, xyt_int)
+        residual = (u_t_vals - alpha * lap_vals - heat_source(xyt_int))
 
         metrics = {
             "u_min": u_vals.min().item(),
