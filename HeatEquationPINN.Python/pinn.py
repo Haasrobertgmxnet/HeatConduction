@@ -2,6 +2,27 @@
 import torch
 import torch.nn as nn
 
+class TransformTemp:
+    def __init__(self, A: float=1, B:float = 0):
+        self.A = A
+        self.B = B
+
+    def scale(self, u: torch.Tensor) -> torch.Tensor:
+        return (u - self.B) / self.A
+
+    def inv_scale(self, scaled_u: torch.Tensor) -> torch.Tensor:
+        return self.A * scaled_u + self.B
+
+    def scale_heat_source(self, f: torch.Tensor) -> torch.Tensor:
+        return f/self.A
+
+    def scale_bc_c(self, a: float, c: float) -> float:
+        return c / self.A +a * self.B
+
+    def scale_single(self, u: float) -> float:
+        return (u - self.B) / self.A
+
+temp_transform = TransformTemp(A=250, B=0)
 
 class PINN(nn.Module):
     """
@@ -82,6 +103,7 @@ class PINN(nn.Module):
         forward(x,y,t) oder forward(xyt)
         → u(x,y,t) als (N,1)
         """
+        global temp_transform
         xyt = self._prepare_input(*inputs)  # (N,3)
 
         if self.use_fourier:
@@ -93,5 +115,7 @@ class PINN(nn.Module):
             h = self.activation(layer(h))
 
         u = self.out_layer(h)  # (N,1)
-        u = u + 25.0
+        u = u + temp_transform.scale_single(25.0)
         return u
+
+

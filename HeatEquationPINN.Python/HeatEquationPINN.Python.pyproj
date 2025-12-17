@@ -36,6 +36,9 @@
     <Compile Include="sampling_service.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="training_phase_config.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="training_utils.py">
       <SubType>Code</SubType>
     </Compile>
