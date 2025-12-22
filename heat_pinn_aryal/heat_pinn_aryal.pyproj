@@ -2,15 +2,15 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>1acb79f9-725a-4abf-ae26-2d97f6cde87e</ProjectGuid>
+    <ProjectGuid>2d5b8600-c488-4fef-bde6-939dc670b692</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>HeatEquationPINN.Python.py</StartupFile>
+    <StartupFile>heat_pinn_aryal.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
-    <Name>HeatEquationPINN.Python</Name>
-    <RootNamespace>HeatEquationPINN.Python</RootNamespace>
+    <Name>heat_pinn_aryal</Name>
+    <RootNamespace>heat_pinn_aryal</RootNamespace>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -21,27 +21,8 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="comparison.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="HeatEquationPINN.Python.py" />
-    <Compile Include="pinn.py" />
-    <Compile Include="pinn_trainer.py" />
-    <Compile Include="pipeline_2d.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="pipeline_aryal.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="sampling_service.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="training_phase_config.py">
-      <SubType>Code</SubType>
-    </Compile>
-    <Compile Include="training_utils.py">
-      <SubType>Code</SubType>
-    </Compile>
+    <Compile Include="heat_pinn_aryal.py" />
+    <Compile Include="pipeline_aryal.py" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in

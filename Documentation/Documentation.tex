@@ -16,6 +16,8 @@
 \onehalfspacing
 \usepackage{parskip} % no indent, space between paragraphs
 \usepackage{mdframed}
+\usepackage{caption}
+
 
 % Mathematics
 \usepackage{amsmath, amssymb, amsthm}
@@ -792,7 +794,8 @@ To set up the PINN training the approach of \cite{aryal2024a} is used and extend
 
 \begin{figure}[H]
 \centering
-\setlength{\figwidth}{0.9\textwidth}
+\setlength{\figwidth}{0.95\textwidth}
+\captionsetup{width=\figwidth}
 
     % Definitionen wie booktabs
     \newcommand{\figtrule}{\rule{\figwidth}{0.08em}}   % top
@@ -808,9 +811,10 @@ To set up the PINN training the approach of \cite{aryal2024a} is used and extend
     % \vspace{1pt}
     \figmrule
     \vspace{3pt}
-\resizebox{0.9\linewidth}{!}{%
+\resizebox{0.95\linewidth}{!}{%
     \begin{tikzpicture}[
     scale=0.9,
+    font=\small,
     node distance=12mm,
     line width=0.6pt,
     >={Stealth[length=3mm,width=2mm]}
@@ -826,25 +830,37 @@ To set up the PINN training the approach of \cite{aryal2024a} is used and extend
 \end{scope}
 
 % ===== HIDDEN LAYER 1 =====
-\node[hidden neuron, right=20mm of y] (h11) {$H^{(1)}_2$};
+\node[hidden neuron, right=12mm of y] (h11) {$H^{(1)}_2$};
 \node[hidden neuron, above=of h11] (h12) {$H^{(1)}_1$};
 \node[dots, below=of h11] (dots1) {$\vdots$};
 \node[hidden neuron, below=of dots1] (h14) {$H^{(1)}_{50}$};
 
 % ===== HIDDEN LAYER 2 =====
-\node[hidden neuron, right=20mm of h11] (h21) {$H^{(2)}_2$};
+\node[hidden neuron, right=12mm of h11] (h21) {$H^{(2)}_2$};
 \node[hidden neuron, above=of h21] (h22) {$H^{(2)}_1$};
 \node[dots, below=of h21] (dots2) {$\vdots$};
 \node[hidden neuron, below=of dots2] (h24) {$H^{(2)}_{50}$};
 
 % ===== HIDDEN LAYER 3 =====
-\node[hidden neuron, right=20mm of h21] (h31) {$H^{(3)}_2$};
+\node[hidden neuron, right=12mm of h21] (h31) {$H^{(3)}_2$};
 \node[hidden neuron, above=of h31] (h32) {$H^{(3)}_1$};
 \node[dots, below=of h31] (dots3) {$\vdots$};
 \node[hidden neuron, below=of dots3] (h34) {$H^{(3)}_{50}$};
 
+% ===== HIDDEN LAYER 4 =====
+\node[hidden neuron, right=12mm of h31] (h41) {$H^{(4)}_2$};
+\node[hidden neuron, above=of h41] (h42) {$H^{(4)}_1$};
+\node[dots, below=of h41] (dots3) {$\vdots$};
+\node[hidden neuron, below=of dots3] (h44) {$H^{(4)}_{50}$};
+
+% ===== HIDDEN LAYER 5 =====
+\node[hidden neuron, right=12mm of h41] (h51) {$H^{(5)}_2$};
+\node[hidden neuron, above=of h51] (h52) {$H^{(5)}_1$};
+\node[dots, below=of h51] (dots3) {$\vdots$};
+\node[hidden neuron, below=of dots3] (h54) {$H^{(5)}_{50}$};
+
 % ===== OUTPUT LAYER (zentriert) =====
-\node[output neuron, right=20mm of h31] (u) {$u(x,y,t)$};
+\node[output neuron, right=12mm of h51] (u) {$u(x,y,t)$};
 
 % ===== CONNECTIONS =====
 % Input -> Hidden 1
@@ -862,22 +878,34 @@ To set up the PINN training the approach of \cite{aryal2024a} is used and extend
   \foreach \j in {h32,h31,h34}
     \draw[->] (\i) -- (\j);
 
-% Hidden 3 -> Output
+% Hidden 3 -> Hidden 4
 \foreach \i in {h32,h31,h34}
-    \draw[->] (\i) -- (u);
+    \foreach \j in {h42,h41,h44}
+    \draw[->] (\i) -- (\j);
 
+% Hidden 4 -> Hidden 5
+\foreach \i in {h42,h41,h44}
+    \foreach \j in {h52,h51,h54}
+    \draw[->] (\i) -- (\j);
+    
+% Hidden 5 -> Output
+\foreach \i in {h52,h51,h54}
+    \draw[->] (\i) -- (u);
+    
 % ===== LABELS =====
 \node[above=3mm of x] {Input Layer};
 \node[above=3mm of h12] {Hidden Layer 1};
 \node[above=3mm of h22] {Hidden Layer 2};
-\node[above=3mm of h32] (l3) {Hidden Layer 3};
-\node[right=10mm of l3] {Output Layer};
+\node[above=3mm of h32] {Hidden Layer 3};
+\node[above=3mm of h42] {Hidden Layer 4};
+\node[above=3mm of h52] (l5) {Hidden Layer 5};
+\node[right=4mm of l5] {Output Layer};
 
 \end{tikzpicture}
 }
 \figbrule
 
-    \caption{The Physics informed neural Network (PINN)}
+    \caption{The Physics informed neural Network (PINN). This Figure \ref{fig:PINN_arch} shows the architecture of the Physics informed neural Network (PINN) to calculate the heat conduction problem (\ref{inhomogenHeatC}, \ref{inhomogenIC}, \ref{inhomogenBC}). This PINN contains three input nodes, five hidden layers, each of them containing 50 nodes. Lthe output layer has one output node containing the result $u(x,y,t)$. A hyperbolic tangent function as activation is used.}
     \label{fig:PINN_arch}
 
     % Linie nach der Caption

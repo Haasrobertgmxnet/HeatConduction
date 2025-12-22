@@ -199,7 +199,7 @@ class HeatExplicitSolver():
             start = time.time()
             tval = frame.lt*(1+n_frame)/n_frames
             u, u_t = solver.n_steps(u, f, t_steps_per_frame)
-            u_frames.append(result_data(u, u_t))
+            u_frames.append(result_data(u=u, u_t=u_t))
             min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
             max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
             tval = (n_frame + 1) * (frame.lt / n_frames)

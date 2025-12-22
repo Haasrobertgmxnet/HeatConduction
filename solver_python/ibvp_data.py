@@ -18,6 +18,28 @@
         self.b = b
         self.c = c
 
+    @classmethod
+    def from_existing(cls, other):
+        """
+        Copy-constructor: builds a new IBVPData instance from an existing one.
+        Safe and explicit.
+        """
+        return cls(
+            alpha=other.alpha,
+            heat_source=other.heat_source,
+            initial_u=other.initial_u,
+            a=other.a,
+            b=other.b,
+            c=other.c
+        )
+
+    def copy(self):
+        """
+        Preferred user-facing copy method.
+        Creates a full independent clone of the IBVPData object.
+        """
+        return IBVPData.from_existing(self)
+
     def u_amb(self):
         """
         Returns the ambient (equilibrium) temperature that follows from the
@@ -33,8 +55,10 @@
 
 
 # Example usage ---------------------------------------------------------------
-
-from function_set import GaussKernel, CompactGaussKernel, CompactCylindricalKernel, ModeFunction, ConstantFunc
+try:
+    from function_set import GaussKernel, CompactGaussKernel, CompactCylindricalKernel, ModeFunction, ConstantFunc
+except:
+    from solver_python.function_set import GaussKernel, CompactGaussKernel, CompactCylindricalKernel, ModeFunction, ConstantFunc
 
 # Choose the heat source function via kernel
 gauss_kernel = GaussKernel(0.5, 0.5, 0.1, 500.0)

@@ -3,10 +3,15 @@ import torch.nn as nn
 import time
 import numpy as np
 
+import os
+os.sys.path.append("..")
+
 from result_data import result_data
 from result_frames import result_frames
-from comparison import compare_trained
-from pinn import PINN
+# from comparison import compare_trained
+from heat_pinn_python.pinn import PINN, PINNConfig
+# from pinn_trainer import predict_u_and_derivs
+from heat_pinn_python.pinn import load_model, temp_transform
 
 class HeatPINNSolver():
     """
@@ -57,7 +62,21 @@ class HeatPINNSolver():
         hid_layers = 5
         nodes = 50
         model = PINN(hid_layers,nodes).to(device)
-        model.load_state_dict(torch.load('case3_models/model'))
+        pinn_cfg = PINNConfig()
+
+        # ----------------------------------------
+        # Modell (Fourier-PINN oder MLP je nach pinn.py)
+        # ----------------------------------------
+        model = PINN(
+            hid_layers=pinn_cfg.n_hid_layers,
+            neurons=pinn_cfg.n_neurons,
+            activation=nn.Tanh(),
+            use_fourier=pinn_cfg.use_fourier,
+            m_fourier=pinn_cfg.m_fourier,
+            fourier_scale=pinn_cfg.fourier_scale
+        ).to(device)
+        model, ckpt = load_model('case3_models/pinn_model2.pt', pinn_cfg, device)
+        # model.load_state_dict(torch.load('case3_models/pinn_model2.pt'))
         model.eval()
 
         print("Model successfully loaded.")
@@ -77,22 +96,41 @@ class HeatPINNSolver():
 
         # Evaluate model at requested times
         dt = 3.0
-        with torch.no_grad():
+        with_derivs = True
+
+        if with_derivs:
             for n_frame in range(n_frames):
                 start = time.time()
                 tval = frame.lt*(1+n_frame)/n_frames  # current time value
                 xv = Xv.unsqueeze(1)
                 yv = Yv.unsqueeze(1)
                 tv = torch.full_like(Xv, tval).unsqueeze(1)
-                u = model(xv, yv, tv).reshape(frame.ny, frame.nx).cpu().numpy()
-                u2 = u - model(xv, yv, tv + dt).reshape(frame.ny, frame.nx).cpu().numpy()
-                u_t = (u2 - u) / dt
-                u_frames.append(result_data(u))
+                xyt = torch.cat((xv, yv, tv), dim=1)
+                u, u_t_val, lap_u = PINN.predict_u_and_derivs(model, xyt)
+                u = temp_transform.inv_scale(u.reshape(frame.ny, frame.nx).detach().numpy())
+                u_t = temp_transform.inv_scale(u_t_val.reshape(frame.ny, frame.nx).detach().numpy())
+                lap_u = temp_transform.inv_scale(lap_u.reshape(frame.ny, frame.nx).detach().numpy())
+                u_frames.append(result_data(u=u, u_t= u_t, lap_u = lap_u))
                 min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
                 max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
                 print(f"Frame {tval:.2f}: mean={u.mean():.6f}, min={u.min():.6f} @ {min_idx}, max={u.max():.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
-
-        result = result_frames(u_frames, f, has_u_t= False, has_derivs= False, has_laplacian= False)
+            result = result_frames(u_frames, f, has_u_t= True, has_derivs= False, has_laplacian= True)
+        else:
+            with torch.no_grad():
+                for n_frame in range(n_frames):
+                    start = time.time()
+                    tval = frame.lt*(1+n_frame)/n_frames  # current time value
+                    xv = Xv.unsqueeze(1)
+                    yv = Yv.unsqueeze(1)
+                    tv = torch.full_like(Xv, tval).unsqueeze(1)
+                    u = temp_transform.inv_scale(model(xv, yv, tv).reshape(frame.ny, frame.nx).cpu().numpy())
+                    u2 = u - temp_transform.inv_scale(model(xv, yv, tv + dt).reshape(frame.ny, frame.nx).cpu().numpy())
+                    u_t = (u2 - u) / dt
+                    u_frames.append(result_data(u=u, u_t= u_t, lap_u = lap_u))
+                    min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
+                    max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
+                    print(f"Frame {tval:.2f}: mean={u.mean():.6f}, min={u.min():.6f} @ {min_idx}, max={u.max():.6f} @ {max_idx}, Time needed {time.time() - start:.4f}")
+            result = result_frames(u_frames, f, has_u_t= False, has_derivs= False, has_laplacian= False)
         return result
 
 

@@ -464,7 +464,7 @@ class GreenFunctionSolver:
         u_xx = (phi_x_eval.T*lam) @ C @ phi_y_eval
         u_yy = phi_x_eval.T @ C @ (phi_y_eval.T*lam).T
 
-        self.result_data = result_data(u, u_t, u_x, u_y, u_xx, u_yy)
+        self.result_data = result_data(u=u, u_t= u_t, u_x=u_x, u_y=u_y, u_xx=u_xx, u_yy=u_yy)
 
     def pipeline(ibvp, frame, t_steps_per_frame = 1, n_frames = 1):
         """

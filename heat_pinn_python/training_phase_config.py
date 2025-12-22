@@ -1,7 +1,5 @@
 ﻿from dataclasses import dataclass
 import os
-# from dataclasses import asdict
-# import json
 
 @dataclass
 class TrainingPhaseConfig:
@@ -105,17 +103,17 @@ training_phase2 = TrainingPhaseConfig(
     lambda_cont= 0.5,
 
     # Learning Rate
-    lr = 2e-4,
+    lr = 1e-5,
     min_lr = 5e-6,
 
-    use_cosine_annealing = True,
+    use_cosine_annealing = False,
     use_adaptive_lr = False,
     max_lr=3e-3,
     warmup_steps=800,
-    use_warmup=True,
+    use_warmup=False,
 
     # Gradient Handling
-    use_gradient_clipping=True,
+    use_gradient_clipping=False,
     grad_clip_norm=0.5,
 
     # Logging
@@ -129,44 +127,5 @@ training_phase2 = TrainingPhaseConfig(
     ema_alpha=0.05,
 
     # Training
-    epochs=1500
-)
-
-_training_phase2 = TrainingPhaseConfig(
-    json_file = "training_phase2_cfg.json",
-    model_file ="pinn_model2.pt",
-    use_trained_model = False,
-
-    # Loss-Gewichte
-    lambda_phy = 1.2,   # or 1.5
-    lambda_bc  = 0.7,
-    lambda_ic  = 0.3,
-    lambda_cont=1.0,
-
-    # Learning Rate
-    lr=2e-4,
-    min_lr=5e-5,
-    max_lr=3e-3,
-    warmup_steps=800,
-
-    use_warmup=True,
-    use_cosine_annealing=False,
-    use_adaptive_lr=False,
-
-    # Gradient Handling
-    use_gradient_clipping=True,
-    grad_clip_norm=0.5,
-
-    # Logging
-    use_logging=True,
-    log_interval=100,
-
-    # Early stopping
-    use_early_stopping=False,
-    patience=2000,
-    min_delta=1e-6,
-    ema_alpha=0.05,
-
-    # Training
-    epochs=2000
+    epochs=3000
 )

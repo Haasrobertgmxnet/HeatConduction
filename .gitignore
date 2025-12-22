@@ -369,3 +369,5 @@ FodyWeavers.xsd
 /Documentation/Documentation.pdf
 /HeatEquationPINN.Cpp/data
 /HeatEquationPINN.Cpp/build
+/heat_pinn_python/HeatEquationPINN.Python.py
+/heat_pinn_python/HeatEquationPINN.Python.pyproj

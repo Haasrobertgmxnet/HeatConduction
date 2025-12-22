@@ -1,10 +1,10 @@
-﻿# pinn_trainer.py
-
-import os
-from sqlite3 import SQLITE_CANTOPEN_DIRTYWAL
-
-# import training_phase_config
+﻿import os
 os.sys.path.append("..")
+
+from solver_python.ibvp_data import ibvp1, IBVPData
+from solver_python.plot_tools import animate_heatmap
+
+# from sqlite3 import SQLITE_CANTOPEN_DIRTYWAL
 
 import json
 import time
@@ -18,7 +18,8 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 
 from pinn import PINN
-from pinn import temp_transform
+from pinn import PINNConfig
+from pinn import load_model, temp_transform
 
 from sampling_service import SamplingService, SamplingConfig
 from sampling_service import make_affine_transform
@@ -26,10 +27,6 @@ from sampling_service import make_affine_transform
 from training_phase_config import TrainingPhaseConfig
 from training_phase_config import training_phase1
 from training_phase_config import training_phase2
-
-from ibvp_data import ibvp1, IBVPData
-
-from plot_tools import animate_heatmap
 
 from training_utils import (
     apply_warmup,
@@ -39,7 +36,6 @@ from training_utils import (
     log_training,
     early_stopping,
     early_stopping_t,
-    load_model,
     update_lambda_phy
 )
 
@@ -47,9 +43,8 @@ from training_utils import (
 # =============================================================================
 # KONFIGURATION
 # =============================================================================
-
 @dataclass
-class TrainingConfig:
+class __TrainingConfig:
 
     # -------------------------------
     # Loss-Gewichte (Startwerte)
@@ -95,66 +90,6 @@ class TrainingConfig:
     # Training
     # -------------------------------
     epochs: int = 8000 # 15000
-
-
-
-@dataclass
-class PINNConfig:
-    n_hid_layers: int = 5
-    n_neurons: int = 50
-    use_fourier = False
-    m_fourier: int = 12
-    fourier_scale: float = 2.0
-
-
-# =============================================================================
-# Autograd-Helfer
-# =============================================================================
-
-@torch.no_grad()
-def predict_u(model, xyt: torch.Tensor) -> torch.Tensor:
-    """
-    Schnelle Vorhersage nur von u(x,y,t).
-    Kein Autograd notwendig, ideal für Animationen und Auswertung.
-    """
-    return model(xyt)[:, 0:1]
-
-
-def predict_u_and_derivs(model, xyt: torch.Tensor):
-    if not xyt.requires_grad:
-        xyt = xyt.requires_grad_(True)
-
-    u = model(xyt)
-
-    grads = torch.autograd.grad(
-        u,
-        xyt,
-        grad_outputs=torch.ones_like(u),
-        create_graph=True
-    )[0]
-
-    u_x = grads[:, 0:1]
-    u_y = grads[:, 1:2]
-    u_t = grads[:, 2:3]
-
-    u_xx = torch.autograd.grad(
-        u_x,
-        xyt,
-        grad_outputs=torch.ones_like(u_x),
-        create_graph=True
-    )[0][:, 0:1]
-
-    u_yy = torch.autograd.grad(
-        u_y,
-        xyt,
-        grad_outputs=torch.ones_like(u_y),
-        create_graph=True
-    )[0][:, 1:2]
-
-    lap_u = u_xx + u_yy
-    return u, u_t, lap_u
-
-
 
 # =============================================================================
 # TRAINING PIPELINE
@@ -202,17 +137,6 @@ def training_pipeline():
     update_lambda1 = update_lambda_phy
     update_lambda2 = None
 
-
-    use_trained_model = False
-    start_epoch = 0
-    if os.path.exists("pinn_model.pt") and use_trained_model:
-        model, ckpt = load_model("pinn_model.pt", pinn_cfg, device)
-
-        optimizer = optim.Adam(model.parameters(), lr=training_cfg.lr)
-        optimizer.load_state_dict(ckpt["optimizer_state"])
-
-        start_epoch = ckpt["epoch"] + 1
-
     def heat_source(xyt: torch.Tensor) -> torch.Tensor:
         global temp_transform
         x = xyt[:, 0:1]
@@ -230,12 +154,12 @@ def training_pipeline():
     # Loss-Funktionen
     # ----------------------------------------
     def physics_loss(model: PINN, xyt: torch.Tensor) -> torch.Tensor:
-        _, u_t_val, lap_u = predict_u_and_derivs(model, xyt)
+        _, u_t_val, lap_u = PINN.predict_u_and_derivs(model, xyt)
         f = heat_source(xyt)
         return ((u_t_val - alpha * lap_u - f) ** 2).mean()
 
     def ic_loss(model: PINN, Xyt_ic: torch.Tensor) -> torch.Tensor:
-        u_pred, _, _ = predict_u_and_derivs(model, Xyt_ic)
+        u_pred, _, _ = PINN.predict_u_and_derivs(model, Xyt_ic)
         u_ic = initial_u(Xyt_ic)
         return ((u_pred - u_ic) ** 2).mean()
 
@@ -291,7 +215,6 @@ def training_pipeline():
         mode="biased"
     )
 
-    #
     # ----------------------------------------
     # Modell speichern
     # ----------------------------------------
@@ -300,8 +223,7 @@ def training_pipeline():
         torch.save({
             "model_state": model.state_dict(),
             "optimizer_state": optimizer.state_dict(),
-            "epoch": training_phase_cfg.epochs,
-            "training_phase_cfg": training_phase_cfg
+            "epoch": training_phase_cfg.epochs
         }, save_path)
 
         print(f"Modell gespeichert unter {save_path}")
@@ -385,7 +307,7 @@ def training_pipeline():
 
             # --- erweiterte Metriken (für Logging) ---
             model.eval()
-            u_vals, u_t_vals, lap_vals = predict_u_and_derivs(model, xyt_int)
+            u_vals, u_t_vals, lap_vals = PINN.predict_u_and_derivs(model, xyt_int)
             residual = (u_t_vals - alpha * lap_vals - heat_source(xyt_int))
 
             u_vals = temp_transform.inv_scale(u_vals)
@@ -423,13 +345,6 @@ def training_pipeline():
 
     best_metrics = train_loop(training_phase_cfg = training_phase1, optimizer = optimizer, scheduler = scheduler1, update_lambda = update_lambda_phy)
     best_metrics = train_loop(training_phase_cfg = training_phase2, optimizer = optimizer, scheduler = scheduler2)
-    # save_model(model = model, training_phase_cfg = training_phase2)
-
-    # ----------------------------------------
-    # Optionale Visualisierung / Animation
-    # ----------------------------------------
-    t_vals = torch.linspace(0.0, 60.0, 100)
-    animate_heatmap(model, t_vals, grid_size=80, device=device, temp_transform= temp_transform)
 
     # ----------------------------------------
     # Training Report
@@ -446,4 +361,9 @@ def training_pipeline():
     print(f"Trainingsdauer: {duration:.2f} s")
     print("===========================\n")
 
+    # ----------------------------------------
+    # Optionale Visualisierung / Animation
+    # ----------------------------------------
+    t_vals = torch.linspace(0.0, 60.0, 100)
+    animate_heatmap(model, t_vals, grid_size=80, device=device, temp_transform= temp_transform)
     

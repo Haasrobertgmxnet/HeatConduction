@@ -106,7 +106,6 @@ def log_training(epoch, losses, metrics, cfg):
         f"u=[{m['u_min']:.3f}, {m['u_max']:.3f}] | "
         f"u_t=[{m['u_t_min']:.3f}, {m['u_t_max']:.3f}] | "
         f"lap=[{m['lap_min']:.3f}, {m['lap_max']:.3f}] | "
-        # f"res=[{m['res_min']:.3e}, {m['res_max']:.3e}]  μ={m['res_mean']:.3e} | "
         f"l_phy={m['lambda_phy']:.5e} | "
         f"l_ic={m['lambda_ic']:.5e} | "
         f"l_bc={m['lambda_bc']:.5e}  | "
@@ -210,24 +209,7 @@ def update_lambda_phy(epoch):
     else:
         return 1.0
 
-def __update_lambda_phy(epoch):
-    if epoch >= 2500:
-        return 0.3
-    if epoch >= 4000:
-        return 0.7
-    if epoch >= 6000:
-        return  1.0
-
-    if epoch < 3000:
-        return 0.05
-    elif epoch < 6000:
-        return 0.2
-    elif epoch < 9000:
-        return 0.5
-    else:
-        return 1.0
-
-def loss_number(losses):
+def _loss_number(losses):
     # return 1.0
     wnd_width = 10
     if len(losses)< wnd_width:
@@ -240,21 +222,3 @@ def loss_number(losses):
     ex = 2
     return ((l_max - l_diff)/l_max)**ex
 
-def load_model(model_path, pinn_cfg, device="cpu"):
-    model = PINN(
-        hid_layers=pinn_cfg.n_hid_layers,
-        neurons=pinn_cfg.n_neurons,
-        activation=nn.Tanh(),
-        m_fourier=pinn_cfg.m_fourier,
-        fourier_scale=pinn_cfg.fourier_scale
-    ).to(device)
-
-    checkpoint = torch.load(model_path, map_location=device, weights_only= False)
-    print(checkpoint["training_phase_cfg"])
-    
-    checkpoint = torch.load(model_path, map_location=device, weights_only= False)
-    model.load_state_dict(checkpoint["model_state"])
-    
-
-    print(f"Modell geladen aus {model_path}, zuletzt trainiert bis Epoche {checkpoint['epoch']}.")
-    return model, checkpoint

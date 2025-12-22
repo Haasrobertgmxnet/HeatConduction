@@ -379,7 +379,7 @@ class HeatCrankNicolsonSolver():
         for n_frame in range(n_frames):
             start = time.time()
             u, u_t = solver.n_steps(u, f, t_steps_per_frame)
-            u_frames.append(result_data(u, u_t))
+            u_frames.append(result_data(u=u, u_t=u_t))
 
             min_idx = tuple(int(i) for i in np.unravel_index(np.argmin(u), u.shape))
             max_idx = tuple(int(i) for i in np.unravel_index(np.argmax(u), u.shape))
